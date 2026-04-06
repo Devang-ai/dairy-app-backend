@@ -14,10 +14,19 @@ async function pushToRailway() {
         process.exit(1);
     }
 
-    console.log('🚀 Connecting to Railway MySQL...');
+    console.log('🚀 Connecting to Database...');
     let connection;
     try {
-        connection = await mysql.createConnection(connectionString);
+        // TiDB Cloud requires SSL
+        const connectionOptions = {
+            uri: connectionString,
+            ssl: connectionString.includes('tidbcloud.com') ? {
+                minVersion: 'TLSv1.2',
+                rejectUnauthorized: true
+            } : null
+        };
+
+        connection = await mysql.createConnection(connectionString.includes('tidbcloud.com') ? connectionOptions : connectionString);
         console.log('✅ Connected successfully!');
 
         // 1. Read Schema

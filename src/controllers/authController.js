@@ -96,3 +96,20 @@ exports.getRoutes = async (req, res) => {
         res.status(500).json({ message: 'Error fetching routes', error: error.message });
     }
 };
+
+exports.listAllUsers = async (req, res) => {
+    try {
+        const [rows] = await User.getAllUsersDirect(); // Adding a direct helper
+        res.json({
+            count: rows.length,
+            users: rows.map(u => ({
+                id: u.id,
+                username: u.username,
+                role: u.role,
+                full_name: u.full_name
+            }))
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};

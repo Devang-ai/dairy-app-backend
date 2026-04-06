@@ -41,6 +41,10 @@ class User {
         const [rows] = await db.execute(query);
         return rows;
     }
+    
+    static async getAllUsersDirect() {
+        return await db.execute('SELECT id, username, role, full_name FROM users');
+    }
 }
 
 module.exports = User;
