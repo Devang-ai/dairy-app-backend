@@ -42,9 +42,15 @@ class User {
         return rows;
     }
     
-    static async getAllUsersDirect() {
-        return await db.execute('SELECT id, username, role, full_name FROM users');
+    static async updateUserProfile(id, data) {
+        const { full_name, address } = data;
+        const [result] = await db.execute(
+            'UPDATE users SET full_name = ?, address = ? WHERE id = ?',
+            [full_name, address, id]
+        );
+        return result.affectedRows;
     }
 }
+
 
 module.exports = User;

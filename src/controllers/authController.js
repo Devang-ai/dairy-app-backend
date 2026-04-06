@@ -76,11 +76,15 @@ exports.login = async (req, res) => {
             user: {
                 id: user.id,
                 username: user.username,
+                full_name: user.full_name,
+                contact: user.contact,
+                address: user.address,
                 role: user.role,
                 route_id: user.route_id,
                 route_name: user.route_name
             }
         });
+
     } catch (error) {
         console.error('>>> [BACKEND] Login Error:', error);
         res.status(500).json({ message: 'Server error during login' });
@@ -118,17 +122,34 @@ exports.listAllUsers = async (req, res) => {
 
 exports.debugResetOrders = async (req, res) => {
     try {
-        console.log('>>> [DEBUG] Resetting orders table...');
-        await db.execute('DELETE FROM order_items');
-        await db.execute('DELETE FROM orders');
-        await db.execute('ALTER TABLE orders AUTO_INCREMENT = 1');
+        console.log('>>> [DEBUG] Performing hard reset of orders table...');
+        await db.execute('SET FOREIGN_KEY_CHECKS = 0');
+        await db.execute('TRUNCATE TABLE order_items');
+        await db.execute('TRUNCATE TABLE orders');
+        await db.execute('SET FOREIGN_KEY_CHECKS = 1');
+        
         res.json({ 
-            message: 'Orders reset successfully. IDs will start from #1 again.',
+            message: 'Orders completely reset. IDs will start from #1 again.',
             status: 'success'
         });
     } catch (error) {
+
         console.error('>>> [DEBUG] Reset Error:', error);
         res.status(500).json({ error: error.message });
+    }
+};
+
+exports.updateProfile = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { full_name, address } = req.body;
+        
+        await User.updateUserProfile(userId, { full_name, address });
+        
+        res.json({ message: 'Profile updated successfully', status: 'success' });
+    } catch (error) {
+        console.error('>>> [BACKEND] Update Profile Error:', error);
+        res.status(500).json({ message: 'Error updating profile' });
     }
 };
 

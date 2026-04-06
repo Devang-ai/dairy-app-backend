@@ -595,18 +595,40 @@ exports.getUsers = async (req, res) => {
     }
 };
 
+const cloudinary = require('../config/cloudinary');
+const streamifier = require('streamifier');
+
 exports.uploadImage = async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ message: 'No file uploaded' });
         }
         
-        // Return the relative URL to the image
-        // Assuming app.use('/uploads', express.static(...))
-        const imageUrl = `/uploads/${req.file.filename}`;
-        res.json({ imageUrl });
+        console.log('>>> [AdminController] Uploading image to Cloudinary...');
+        
+        let streamUpload = (req) => {
+            return new Promise((resolve, reject) => {
+                let stream = cloudinary.uploader.upload_stream(
+                  (error, result) => {
+                    if (result) {
+                      resolve(result);
+                    } else {
+                      reject(error);
+                    }
+                  }
+                );
+
+              streamifier.createReadStream(req.file.buffer).pipe(stream);
+            });
+        };
+
+        const result = await streamUpload(req);
+        console.log('<<< [AdminController] Cloudinary Upload Success:', result.secure_url);
+        
+        res.json({ imageUrl: result.secure_url });
     } catch (error) {
-        console.error('Upload Error:', error);
-        res.status(500).json({ message: 'Error uploading image' });
+        console.error('Cloudinary Upload Error:', error);
+        res.status(500).json({ message: 'Error uploading image to cloud' });
     }
 };
+

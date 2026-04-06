@@ -59,13 +59,33 @@ class Product {
     }
 
     static async delete(id) {
+        console.log('>>> [ProductModel] Cleaning up dependencies for product ID:', id);
         try {
-            await db.execute('DELETE FROM products WHERE id = ?', [id]);
+            // Check order_items first
+            const [orderItems] = await db.execute('SELECT COUNT(*) as count FROM order_items WHERE product_id = ?', [id]);
+            const [variants] = await db.execute('SELECT COUNT(*) as count FROM product_variants WHERE product_id = ?', [id]);
+            
+            console.log(`>>> [ProductModel] Found ${orderItems[0].count} order items and ${variants[0].count} variants to clean.`);
+
+            // Cleanup sequence
+            await db.execute('DELETE FROM order_items WHERE product_id = ?', [id]);
+            await db.execute('DELETE FROM product_variants WHERE product_id = ?', [id]);
+            
+            // Final delete
+            const [result] = await db.execute('DELETE FROM products WHERE id = ?', [id]);
+            
+            if (result.affectedRows === 0) {
+                console.warn('>>> [ProductModel] No product was found with ID:', id);
+            } else {
+                console.log('>>> [ProductModel] Product row deleted successfully.');
+            }
         } catch (error) {
             console.error('[ProductModel] delete Error:', error.message);
             throw error;
         }
     }
+
+
 
     // Variant methods
     static async createVariant(variantData) {

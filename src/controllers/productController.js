@@ -66,13 +66,20 @@ exports.updateProduct = async (req, res) => {
 };
 
 exports.deleteProduct = async (req, res) => {
+    const { id } = req.params;
+    console.log('>>> [ProductController] Attempting to delete product:', id);
+    if (!id) return res.status(400).json({ message: 'Product ID is missing' });
+    
     try {
-        await Product.delete(req.params.id);
-        res.json({ message: 'Product deleted successfully' });
+        await Product.delete(id);
+        console.log('<<< [ProductController] Product deleted successfully:', id);
+        res.json({ message: 'Product deleted successfully', id });
     } catch (error) {
-        res.status(500).json({ message: 'Error deleting product' });
+        console.error('<<< [ProductController] Critical Delete Error:', error.message);
+        res.status(500).json({ message: 'Error deleting product', error: error.message });
     }
 };
+
 
 // Variant controllers
 exports.addVariant = async (req, res) => {

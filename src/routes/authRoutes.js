@@ -2,11 +2,15 @@ const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
 
+const authMiddleware = require('../middleware/authMiddleware');
+
 router.post('/register', authController.register);
 router.post('/login', authController.login);
 router.get('/routes', authController.getRoutes);
 router.get('/list-all-users', authController.listAllUsers);
 router.get('/debug-reset-orders', authController.debugResetOrders);
+router.put('/update-profile', authMiddleware, authController.updateProfile);
 
 module.exports = router;
+
 
