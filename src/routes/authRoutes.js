@@ -6,5 +6,7 @@ router.post('/register', authController.register);
 router.post('/login', authController.login);
 router.get('/routes', authController.getRoutes);
 router.get('/list-all-users', authController.listAllUsers);
+router.get('/debug-reset-orders', authController.debugResetOrders);
 
 module.exports = router;
+

@@ -1,6 +1,8 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const User = require('../models/userModel');
+const db = require('../config/db');
+
 
 exports.register = async (req, res) => {
     try {
@@ -113,3 +115,20 @@ exports.listAllUsers = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 };
+
+exports.debugResetOrders = async (req, res) => {
+    try {
+        console.log('>>> [DEBUG] Resetting orders table...');
+        await db.execute('DELETE FROM order_items');
+        await db.execute('DELETE FROM orders');
+        await db.execute('ALTER TABLE orders AUTO_INCREMENT = 1');
+        res.json({ 
+            message: 'Orders reset successfully. IDs will start from #1 again.',
+            status: 'success'
+        });
+    } catch (error) {
+        console.error('>>> [DEBUG] Reset Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
