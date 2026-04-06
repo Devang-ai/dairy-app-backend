@@ -65,7 +65,6 @@ class Order {
     static async getAllDetail(filters) {
         const { route_id, date, user_id } = filters;
         
-        // Finalized optimized query (Attempt)
         try {
             let query = `
                 SELECT o.*, u.full_name as username, u.contact, r.name as route_name
@@ -81,8 +80,16 @@ class Order {
                 params.push(route_id);
             }
             if (date) {
-                query += ' AND o.business_date = ?';
-                params.push(date);
+                // For user queries, match on either business_date OR delivery_date
+                // so orders never disappear due to 2AM cutoff timing differences
+                if (user_id) {
+                    query += ' AND (o.business_date = ? OR DATE(o.delivery_date) = ?)';
+                    params.push(date, date);
+                } else {
+                    // Admin: strict business_date filter
+                    query += ' AND o.business_date = ?';
+                    params.push(date);
+                }
             }
             if (user_id) {
                 query += ' AND o.user_id = ?';
@@ -93,7 +100,6 @@ class Order {
             const [rows] = await db.execute(query, params);
             return rows;
         } catch (error) {
-            // FALLBACK Logic: If migration is still processing or columns are missing
             console.log('[OrderModel] Falling back to legacy query due to:', error.message);
             let fallbackQuery = `
                 SELECT o.*, u.full_name as username, u.contact, r.name as route_name
@@ -113,6 +119,7 @@ class Order {
             return rows;
         }
     }
+
 
     static async getByUserId(userId) {
         const [rows] = await db.execute('SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC', [userId]);
