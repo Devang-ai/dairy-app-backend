@@ -153,3 +153,35 @@ exports.updateProfile = async (req, res) => {
     }
 };
 
+exports.getMe = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const user = await User.findById(userId);
+        
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        // Get route name too
+        const [routeRows] = await require('../config/db').execute(
+            'SELECT name FROM routes WHERE id = ?',
+            [user.route_id]
+        );
+        const route_name = routeRows[0]?.name || '';
+
+        res.json({
+            id: user.id,
+            full_name: user.full_name || '',
+            contact: user.contact || user.username,
+            address: user.address || '',
+            route_id: user.route_id || '',
+            route_name,
+            role: user.role
+        });
+    } catch (error) {
+        console.error('>>> [BACKEND] getMe Error:', error);
+        res.status(500).json({ message: 'Error fetching profile' });
+    }
+};
+
+
