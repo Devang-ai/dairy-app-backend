@@ -491,29 +491,30 @@ exports.testConnection = async (req, res) => {
 exports.getStats = async (req, res) => {
     try {
         // Adjust for IST (+5:30) because servers usually run in UTC
-        const nowUTC = new Date();
-        const nowIST = new Date(nowUTC.getTime() + (5.5 * 60 * 60 * 1000));
+        const now = new Date();
+        const istOffset = 5.5 * 60 * 60 * 1000;
+        const nowIST = new Date(now.getTime() + istOffset);
         
+        // Accounting Date (Business Date)
         const businessDate = new Date(nowIST);
         
-        // 2 AM IST Cut-off logic:
-        // Before 2 AM IST, we are in the previous delivery day's business cycle.
-        // After 2 AM IST, we roll over to the next business day.
-        if (nowIST.getHours() < 2) {
-            businessDate.setDate(nowIST.getDate() - 1);
+        // 2 AM Cut-off logic:
+        // Before 2 AM, the 'business day' is still the previous day.
+        // (e.g., at 1:30 AM Tue, we are still finishing Monday's business cycle).
+        if (nowIST.getUTCHours() < 2) {
+            businessDate.setUTCDate(nowIST.getUTCDate() - 1);
         }
         
         const businessDateStr = businessDate.toISOString().split('T')[0];
         
-        // The delivery date for this business cycle is businessDate + 1
+        // Delivery Date for this business cycle is Business Date + 1
         const deliveryDate = new Date(businessDate);
-        deliveryDate.setDate(businessDate.getDate() + 1);
+        deliveryDate.setUTCDate(businessDate.getUTCDate() + 1);
         const deliveryDateStr = deliveryDate.toISOString().split('T')[0];
         
-        console.log('[AdminController] Server Time (UTC):', nowUTC.toISOString());
-        console.log('[AdminController] Local Time (IST):', nowIST.toISOString());
-        console.log('[AdminController] Final Business Date:', businessDateStr);
-        console.log('[AdminController] Final Delivery Date (Target):', deliveryDateStr);
+        console.log('[Dashboard Stats] Time IST:', nowIST.toISOString());
+        console.log('[Dashboard Stats] Business Date:', businessDateStr);
+        console.log('[Dashboard Stats] Delivery Date (Target):', deliveryDateStr);
 
         // Initialize with default values
         let totalOrders = 0;
