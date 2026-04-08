@@ -490,14 +490,17 @@ exports.testConnection = async (req, res) => {
 
 exports.getStats = async (req, res) => {
     try {
-        const now = new Date();
-        const businessDate = new Date(now);
+        // Adjust for IST (+5:30) because servers usually run in UTC
+        const nowUTC = new Date();
+        const nowIST = new Date(nowUTC.getTime() + (5.5 * 60 * 60 * 1000));
         
-        // 2 AM Cut-off logic:
-        // Before 2 AM, we are still counting orders for 'Today' (which belongs to yesterday's business cycle).
-        // After 2 AM, 'Today' rolls over to the next day's delivery.
-        if (now.getHours() < 2) {
-            businessDate.setDate(now.getDate() - 1);
+        const businessDate = new Date(nowIST);
+        
+        // 2 AM IST Cut-off logic:
+        // Before 2 AM IST, we are in the previous delivery day's business cycle.
+        // After 2 AM IST, we roll over to the next business day.
+        if (nowIST.getHours() < 2) {
+            businessDate.setDate(nowIST.getDate() - 1);
         }
         
         const businessDateStr = businessDate.toISOString().split('T')[0];
@@ -507,9 +510,10 @@ exports.getStats = async (req, res) => {
         deliveryDate.setDate(businessDate.getDate() + 1);
         const deliveryDateStr = deliveryDate.toISOString().split('T')[0];
         
-        console.log('[AdminController] Current hour:', now.getHours());
-        console.log('[AdminController] Business date:', businessDateStr);
-        console.log('[AdminController] Delivery date (target):', deliveryDateStr);
+        console.log('[AdminController] Server Time (UTC):', nowUTC.toISOString());
+        console.log('[AdminController] Local Time (IST):', nowIST.toISOString());
+        console.log('[AdminController] Final Business Date:', businessDateStr);
+        console.log('[AdminController] Final Delivery Date (Target):', deliveryDateStr);
 
         // Initialize with default values
         let totalOrders = 0;
