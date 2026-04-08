@@ -6,7 +6,7 @@ const db = require('../config/db');
 
 exports.register = async (req, res) => {
     try {
-        const { full_name, username, password, role, route_id, contact, address } = req.body;
+        const { full_name, username, password, role, route_id, contact, address, authorized_person_name } = req.body;
         
         // Check if user exists
         const existingUser = await User.findByUsername(username);
@@ -25,7 +25,8 @@ exports.register = async (req, res) => {
             role,
             route_id,
             contact,
-            address
+            address,
+            authorized_person_name
         });
 
         res.status(201).json({ message: 'User registered successfully', userId });
@@ -172,6 +173,7 @@ exports.getMe = async (req, res) => {
         res.json({
             id: user.id,
             full_name: user.full_name || '',
+            authorized_person_name: user.authorized_person_name || '',
             contact: user.contact || user.username,
             address: user.address || '',
             route_id: user.route_id || '',

@@ -22,7 +22,6 @@
     "multer-storage-cloudinary": "^4.0.0",
     "mysql2": "^3.2.0",
     "streamifier": "^0.1.1"
-
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

@@ -33,10 +33,10 @@ class Product {
 
     static async create(productData) {
         try {
-            const { name, description, image_url, is_available = 1 } = productData;
+            const { name, description, image_url, category, is_available = 1 } = productData;
             const [result] = await db.execute(
-                'INSERT INTO products (name, description, image_url, is_available) VALUES (?, ?, ?, ?)',
-                [name, description, image_url, is_available]
+                'INSERT INTO products (name, description, image_url, category, is_available) VALUES (?, ?, ?, ?, ?)',
+                [name, description, image_url, category || 'All', is_available]
             );
             return result.insertId;
         } catch (error) {
@@ -47,10 +47,10 @@ class Product {
 
     static async update(id, productData) {
         try {
-            const { name, description, image_url, is_available } = productData;
+            const { name, description, image_url, category, is_available } = productData;
             await db.execute(
-                'UPDATE products SET name = ?, description = ?, image_url = ?, is_available = ? WHERE id = ?',
-                [name, description, image_url, is_available === undefined ? 1 : is_available, id]
+                'UPDATE products SET name = ?, description = ?, image_url = ?, category = ?, is_available = ? WHERE id = ?',
+                [name, description, image_url, category || 'All', is_available === undefined ? 1 : is_available, id]
             );
         } catch (error) {
             console.error('[ProductModel] update Error:', error.message);

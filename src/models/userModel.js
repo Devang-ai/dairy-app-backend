@@ -18,10 +18,10 @@ class User {
     }
 
     static async create(userData) {
-        const { full_name, username, password, role, route_id, contact, address } = userData;
+        const { full_name, username, password, role, route_id, contact, address, authorized_person_name } = userData;
         const [result] = await db.execute(
-            'INSERT INTO users (full_name, username, password, role, route_id, contact, address) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [full_name, username, password, role || 'user', route_id, contact, address]
+            'INSERT INTO users (full_name, username, password, role, route_id, contact, address, authorized_person_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [full_name, username, password, role || 'user', route_id, contact, address, authorized_person_name]
         );
         return result.insertId;
     }

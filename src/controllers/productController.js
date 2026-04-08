@@ -42,8 +42,8 @@ exports.getProductById = async (req, res) => {
 
 exports.createProduct = async (req, res) => {
     try {
-        const { name, description, image_url, variants } = req.body;
-        const productId = await Product.create({ name, description, image_url });
+        const { name, description, image_url, category, variants } = req.body;
+        const productId = await Product.create({ name, description, image_url, category });
         
         if (variants && Array.isArray(variants)) {
             await Promise.all(variants.map(v => Product.createVariant({ ...v, product_id: productId })));
