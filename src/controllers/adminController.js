@@ -491,10 +491,25 @@ exports.testConnection = async (req, res) => {
 exports.getStats = async (req, res) => {
     try {
         const now = new Date();
-        const calendarDate = now.toISOString().split('T')[0];
+        const businessDate = new Date(now);
         
-        console.log('[AdminController] Current time:', now.toISOString());
-        console.log('[AdminController] Calendar date:', calendarDate);
+        // 2 AM Cut-off logic:
+        // Before 2 AM, we are still counting orders for 'Today' (which belongs to yesterday's business cycle).
+        // After 2 AM, 'Today' rolls over to the next day's delivery.
+        if (now.getHours() < 2) {
+            businessDate.setDate(now.getDate() - 1);
+        }
+        
+        const businessDateStr = businessDate.toISOString().split('T')[0];
+        
+        // The delivery date for this business cycle is businessDate + 1
+        const deliveryDate = new Date(businessDate);
+        deliveryDate.setDate(businessDate.getDate() + 1);
+        const deliveryDateStr = deliveryDate.toISOString().split('T')[0];
+        
+        console.log('[AdminController] Current hour:', now.getHours());
+        console.log('[AdminController] Business date:', businessDateStr);
+        console.log('[AdminController] Delivery date (target):', deliveryDateStr);
 
         // Initialize with default values
         let totalOrders = 0;
@@ -510,17 +525,10 @@ exports.getStats = async (req, res) => {
             const [usersResult] = await db.execute('SELECT COUNT(*) as count FROM users WHERE role = "user"');
             totalUsers = usersResult[0].count;
             
-            // Try to get today's orders using delivery date
-            const deliveryDate = new Date(calendarDate);
-            deliveryDate.setDate(deliveryDate.getDate() + 1);
-            const deliveryDateStr = deliveryDate.toISOString().split('T')[0];
-            
-            console.log('[AdminController] Using delivery date:', deliveryDateStr);
-            
-            // Count today's orders
+            // Count today's orders using the accounting delivery date
             const [todayOrders] = await db.execute('SELECT COUNT(*) as count FROM orders WHERE DATE(delivery_date) = ?', [deliveryDateStr]);
             todayCount = todayOrders[0].count;
-            console.log('[AdminController] Today orders count:', todayCount);
+            console.log('[AdminController] Active delivery orders count:', todayCount);
 
             // Get route breakdown - simplified version
             try {
@@ -565,7 +573,7 @@ exports.getStats = async (req, res) => {
             totalUsers: totalUsers,
             todayOrders: todayCount,
             routeStats: routeBreakdown,
-            businessDate: calendarDate
+            businessDate: businessDateStr
         });
     } catch (error) {
         console.error('[AdminController] Critical error:', error);
