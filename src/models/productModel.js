@@ -34,6 +34,7 @@ class Product {
     static async create(productData) {
         try {
             const { name, description, image_url, category, is_available = 1 } = productData;
+            console.log('>>> [ProductModel] Attempting to create product:', { name, category });
             const [result] = await db.execute(
                 'INSERT INTO products (name, description, image_url, category, is_available) VALUES (?, ?, ?, ?, ?)',
                 [name, description, image_url, category || 'All', is_available]
@@ -41,6 +42,7 @@ class Product {
             return result.insertId;
         } catch (error) {
             console.error('[ProductModel] create Error:', error.message);
+            console.error('[ProductModel] SQL Error Stack:', error.stack);
             throw error;
         }
     }

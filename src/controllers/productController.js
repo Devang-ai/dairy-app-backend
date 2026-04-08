@@ -51,7 +51,12 @@ exports.createProduct = async (req, res) => {
 
         res.status(201).json({ message: 'Product created successfully', productId });
     } catch (error) {
-        res.status(500).json({ message: 'Error creating product' });
+        console.error('>>> [ProductController] Create Error:', error);
+        res.status(500).json({ 
+            message: 'Error creating product', 
+            error: error.message,
+            sqlMessage: error.sqlMessage // Useful for DB errors
+        });
     }
 };
 

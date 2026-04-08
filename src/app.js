@@ -33,8 +33,32 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+
+// Auto-migration for Render/Production
+const db = require('./config/db');
+async function ensureSchema() {
+    try {
+        console.log('>>> checking database schema...');
+        const [columns] = await db.execute('DESCRIBE products');
+        if (!columns.some(c => c.Field === 'category')) {
+            console.log('>>> migration: adding category to products');
+            await db.execute("ALTER TABLE products ADD COLUMN category VARCHAR(100) DEFAULT 'All'");
+        }
+        const [uCols] = await db.execute('DESCRIBE users');
+        if (!uCols.some(c => c.Field === 'authorized_person_name')) {
+            console.log('>>> migration: adding authorized_person_name to users');
+            await db.execute("ALTER TABLE users ADD COLUMN authorized_person_name VARCHAR(255) DEFAULT NULL");
+        }
+        console.log('>>> database schema is up to date.');
+    } catch (err) {
+        console.error('>>> schema check failed:', err.message);
+    }
+}
+
+ensureSchema().then(() => {
+    app.listen(PORT, () => {
+        console.log(`Server is running on port ${PORT}`);
+    });
 });
 
 module.exports = app;
