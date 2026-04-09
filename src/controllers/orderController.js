@@ -63,12 +63,24 @@ exports.getOrders = async (req, res) => {
             }));
             res.json(ordersWithItems);
         } else {
-            console.log(`[OrderController] User ${req.user.id} fetching orders for:`, { date });
-            // Use getAllDetail instead of getByUserId to support date filtering
-            const userOrders = await Order.getAllDetail({ 
-                user_id: req.user.id, 
-                date 
-            });
+            // FOR USERS: If no date is specified, show last 2 days (48 hours logic)
+            let filters = { user_id: req.user.id };
+            
+            if (date) {
+                filters.date = date;
+                console.log(`[OrderController] User ${req.user.id} fetching orders for specific date:`, date);
+            } else {
+                // Default: Last 2 business days
+                const business_date = OrderService.getBusinessDate(); // Today's business date
+                const yesterday = new Date(business_date);
+                yesterday.setDate(yesterday.getDate() - 1);
+                const startDate = yesterday.toISOString().split('T')[0];
+                
+                filters.startDate = startDate;
+                console.log(`[OrderController] User ${req.user.id} fetching recent orders from:`, startDate);
+            }
+
+            const userOrders = await Order.getAllDetail(filters);
             const ordersWithItems = await Promise.all(userOrders.map(async (order) => {
                 const items = await Order.getOrderItems(order.id);
                 return { ...order, items };

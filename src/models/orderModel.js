@@ -79,7 +79,13 @@ class Order {
                 query += ' AND o.route_id = ?';
                 params.push(route_id);
             }
-            if (date) {
+
+            // Date filtering: supports single date or range (startDate)
+            const startDate = filters.startDate;
+            if (startDate) {
+                query += ' AND (o.business_date >= ? OR DATE(o.delivery_date) >= ?)';
+                params.push(startDate, startDate);
+            } else if (date) {
                 // For user queries, match on either business_date OR delivery_date
                 // so orders never disappear due to 2AM cutoff timing differences
                 if (user_id) {
@@ -91,6 +97,7 @@ class Order {
                     params.push(date);
                 }
             }
+
             if (user_id) {
                 query += ' AND o.user_id = ?';
                 params.push(user_id);
