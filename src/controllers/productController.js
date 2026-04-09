@@ -41,22 +41,47 @@ exports.getProductById = async (req, res) => {
 };
 
 exports.createProduct = async (req, res) => {
+    const db = require('../config/db');
+    const connection = await db.getConnection();
+    
     try {
-        const { name, description, image_url, category, variants } = req.body;
-        const productId = await Product.create({ name, description, image_url, category });
+        await connection.beginTransaction();
         
+        const { name, description, image_url, category, variants, is_available } = req.body;
+        console.log('>>> [ProductController] Creating product with transaction:', name);
+
+        // 1. Create Product
+        const [productResult] = await connection.execute(
+            'INSERT INTO products (name, description, image_url, category, is_available) VALUES (?, ?, ?, ?, ?)',
+            [name, description || '', image_url || '', category || 'All', is_available === undefined ? 1 : is_available]
+        );
+        const productId = productResult.insertId;
+
+        // 2. Create Variants
         if (variants && Array.isArray(variants)) {
-            await Promise.all(variants.map(v => Product.createVariant({ ...v, product_id: productId })));
+            for (const v of variants) {
+                if (!v.variant_name || v.variant_name.trim() === '') continue;
+                
+                await connection.execute(
+                    'INSERT INTO product_variants (product_id, variant_name, price, stock) VALUES (?, ?, ?, ?)',
+                    [productId, v.variant_name, v.price || 0, v.stock || 100]
+                );
+            }
         }
 
+        await connection.commit();
+        console.log('<<< [ProductController] Transaction committed, product ID:', productId);
         res.status(201).json({ message: 'Product created successfully', productId });
     } catch (error) {
-        console.error('>>> [ProductController] Create Error:', error);
+        await connection.rollback();
+        console.error('>>> [ProductController] Transaction rolled back due to error:', error.message);
         res.status(500).json({ 
             message: 'Error creating product', 
             error: error.message,
-            sqlMessage: error.sqlMessage // Useful for DB errors
+            sqlMessage: error.sqlMessage 
         });
+    } finally {
+        connection.release();
     }
 };
 

@@ -92,7 +92,7 @@ class Product {
     // Variant methods
     static async createVariant(variantData) {
         try {
-            const { product_id, variant_name, price, stock } = variantData;
+            const { product_id, variant_name, price = 0, stock = 100 } = variantData;
             const [result] = await db.execute(
                 'INSERT INTO product_variants (product_id, variant_name, price, stock) VALUES (?, ?, ?, ?)',
                 [product_id, variant_name, price, stock]
