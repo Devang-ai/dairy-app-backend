@@ -16,9 +16,9 @@ exports.placeOrder = async (req, res) => {
         // Wholesale: No pricing at checkout, total_amount will be null initially
         const total_amount = null;
 
-        // Format items for wholesale system (quantity as decimal, no unit_price)
         const formattedItems = items.map(item => ({
             product_id: item.product_id,
+            variant_id: item.variant_id,
             quantity: parseFloat(item.quantity), // Support decimal quantities like 0.100, 0.500, 1, 2
             final_price: null // Admin will set this later
         }));
