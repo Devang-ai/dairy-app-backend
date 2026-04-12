@@ -48,15 +48,63 @@ class Product {
     }
 
     static async update(id, productData) {
+        const connection = await db.getConnection();
         try {
-            const { name, description, image_url, category, is_available } = productData;
-            await db.execute(
+            await connection.beginTransaction();
+            const { name, description, image_url, category, is_available, variants } = productData;
+            
+            // 1. Update Product Details
+            await connection.execute(
                 'UPDATE products SET name = ?, description = ?, image_url = ?, category = ?, is_available = ? WHERE id = ?',
                 [name, description, image_url, category || 'All', is_available === undefined ? 1 : is_available, id]
             );
+
+            // 2. Sync Variants (if provided)
+            if (variants && Array.isArray(variants)) {
+                // Get current variant IDs to know which ones were removed
+                const [currentVariants] = await connection.execute('SELECT id FROM product_variants WHERE product_id = ?', [id]);
+                const currentIds = currentVariants.map(v => v.id);
+                const incomingIds = variants.filter(v => v.id).map(v => v.id);
+                const toDelete = currentIds.filter(cid => !incomingIds.includes(cid));
+
+                // Delete removed variants
+                if (toDelete.length > 0) {
+                    for (const vid of toDelete) {
+                        try {
+                            await connection.execute('DELETE FROM product_variants WHERE id = ?', [vid]);
+                        } catch (e) {
+                             console.warn(`[ProductModel] Could not delete variant ${vid} (it might be referenced in orders). skipping delete for this variant.`);
+                        }
+                    }
+                }
+
+                // Update or Insert variants
+                for (const v of variants) {
+                    if (!v.variant_name || v.variant_name.trim() === '') continue;
+                    
+                    if (v.id && incomingIds.includes(v.id)) {
+                        // Update existing
+                        await connection.execute(
+                            'UPDATE product_variants SET variant_name = ?, price = ?, stock = ? WHERE id = ?',
+                            [v.variant_name, v.price || 0, v.stock || 100, v.id]
+                        );
+                    } else {
+                        // Insert new
+                        await connection.execute(
+                            'INSERT INTO product_variants (product_id, variant_name, price, stock) VALUES (?, ?, ?, ?)',
+                            [id, v.variant_name, v.price || 0, v.stock || 100]
+                        );
+                    }
+                }
+            }
+
+            await connection.commit();
         } catch (error) {
-            console.error('[ProductModel] update Error:', error.message);
+            await connection.rollback();
+            console.error('[ProductModel] update Transactional Error:', error.message);
             throw error;
+        } finally {
+            connection.release();
         }
     }
 
