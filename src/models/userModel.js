@@ -42,14 +42,21 @@ class User {
         return rows;
     }
     
-    static async updateUserProfile(id, data) {
-        const { full_name, address } = data;
+    static async updateUser(id, data) {
+        const { full_name, username, contact, address, route_id, authorized_person_name } = data;
         const [result] = await db.execute(
-            'UPDATE users SET full_name = ?, address = ? WHERE id = ?',
-            [full_name, address, id]
+            'UPDATE users SET full_name = ?, username = ?, contact = ?, address = ?, route_id = ?, authorized_person_name = ? WHERE id = ?',
+            [full_name, username, contact, address, route_id, authorized_person_name, id]
         );
         return result.affectedRows;
     }
+
+    static async delete(id) {
+        const [result] = await db.execute('DELETE FROM users WHERE id = ?', [id]);
+        return result.affectedRows;
+    }
+
+    static async updateUserProfile(id, data) {
 }
 
 

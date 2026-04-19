@@ -645,3 +645,35 @@ exports.uploadImage = async (req, res) => {
     }
 };
 
+exports.updateUser = async (req, res) => {
+    try {
+        const User = require('../models/userModel');
+        const { id } = req.params;
+        const updated = await User.updateUser(id, req.body);
+        if (updated) {
+            res.json({ success: true, message: 'User updated successfully' });
+        } else {
+            res.status(404).json({ message: 'User not found' });
+        }
+    } catch (error) {
+        console.error('[AdminController] Update user error:', error);
+        res.status(500).json({ message: 'Error updating user', error: error.message });
+    }
+};
+
+exports.deleteUser = async (req, res) => {
+    try {
+        const User = require('../models/userModel');
+        const { id } = req.params;
+        const deleted = await User.delete(id);
+        if (deleted) {
+            res.json({ success: true, message: 'User deleted successfully' });
+        } else {
+            res.status(404).json({ message: 'User not found' });
+        }
+    } catch (error) {
+        console.error('[AdminController] Delete user error:', error);
+        res.status(500).json({ message: 'Error deleting user', error: error.message });
+    }
+};
+
