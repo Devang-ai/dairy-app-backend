@@ -52,8 +52,32 @@ class User {
     }
 
     static async delete(id) {
-        const [result] = await db.execute('DELETE FROM users WHERE id = ?', [id]);
-        return result.affectedRows;
+        const connection = await db.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            // 1. Delete order_items associated with the user's orders
+            await connection.execute(`
+                DELETE oi FROM order_items oi
+                JOIN orders o ON oi.order_id = o.id
+                WHERE o.user_id = ?
+            `, [id]);
+
+            // 2. Delete orders associated with the user
+            await connection.execute('DELETE FROM orders WHERE user_id = ?', [id]);
+
+            // 3. Finally delete the user record
+            const [result] = await connection.execute('DELETE FROM users WHERE id = ?', [id]);
+            
+            await connection.commit();
+            return result.affectedRows;
+        } catch (error) {
+            await connection.rollback();
+            console.error('[UserModel] Cascading delete failed:', error);
+            throw error;
+        } finally {
+            connection.release();
+        }
     }
 
     static async updateUserProfile(id, data) {
