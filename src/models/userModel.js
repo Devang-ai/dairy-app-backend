@@ -57,6 +57,13 @@ class User {
     }
 
     static async updateUserProfile(id, data) {
+        const { full_name, address } = data;
+        const [result] = await db.execute(
+            'UPDATE users SET full_name = ?, address = ? WHERE id = ?',
+            [full_name, address, id]
+        );
+        return result.affectedRows;
+    }
 }
 
 
