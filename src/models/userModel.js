@@ -32,7 +32,7 @@ class User {
     }
     static async getAllUsersWithRoutes() {
         const query = `
-            SELECT u.id, u.full_name, u.username, u.contact, u.address, u.authorized_person_name, r.name as route_name 
+            SELECT u.id, u.full_name, u.username, u.contact, u.address, u.authorized_person_name, u.route_id, r.name as route_name 
             FROM users u
             LEFT JOIN routes r ON u.route_id = r.id
             WHERE u.role = 'user'
