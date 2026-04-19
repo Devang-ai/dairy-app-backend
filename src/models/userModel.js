@@ -88,6 +88,14 @@ class User {
         );
         return result.affectedRows;
     }
+    
+    static async updatePassword(id, hashedPassword) {
+        const [result] = await db.execute(
+            'UPDATE users SET password = ? WHERE id = ?',
+            [hashedPassword, id]
+        );
+        return result.affectedRows;
+    }
 }
 
 

@@ -677,3 +677,27 @@ exports.deleteUser = async (req, res) => {
     }
 };
 
+exports.resetUserPassword = async (req, res) => {
+    try {
+        const User = require('../models/userModel');
+        const bcrypt = require('bcryptjs');
+        const { id } = req.params;
+        const { newPassword } = req.body;
+
+        if (!newPassword || newPassword.length < 4) {
+            return res.status(400).json({ message: 'Password must be at least 4 characters long' });
+        }
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        const updated = await User.updatePassword(id, hashedPassword);
+
+        if (updated) {
+            res.json({ success: true, message: 'Password reset successfully' });
+        } else {
+            res.status(404).json({ message: 'User not found' });
+        }
+    } catch (error) {
+        console.error('[AdminController] Reset password error:', error);
+        res.status(500).json({ message: 'Error resetting password', error: error.message });
+    }
+};

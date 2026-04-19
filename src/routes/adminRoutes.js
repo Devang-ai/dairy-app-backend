@@ -16,6 +16,7 @@ router.get('/export/user-monthly', authMiddleware, isAdmin, adminController.expo
 router.get('/users', authMiddleware, isAdmin, adminController.getUsers);
 router.put('/users/:id', authMiddleware, isAdmin, adminController.updateUser);
 router.delete('/users/:id', authMiddleware, isAdmin, adminController.deleteUser);
+router.put('/users/:id/reset-password', authMiddleware, isAdmin, adminController.resetUserPassword);
 
 // Route Management
 router.get('/routes', authMiddleware, isAdmin, routeController.getRoutes);
