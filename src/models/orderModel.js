@@ -75,12 +75,32 @@ class Order {
     }
 
     static async addOrUpdateItemsInternal(connection, orderId, items) {
+        // Detect if variant_id column exists to avoid "Unknown column" errors
+        let hasVariantId = true;
+        try {
+            await connection.execute('SELECT variant_id FROM order_items LIMIT 1');
+        } catch (err) {
+            hasVariantId = false;
+        }
+
         for (const item of items) {
-            // Check if item already exists in this order
-            const [existing] = await connection.execute(
-                'SELECT id, quantity FROM order_items WHERE order_id = ? AND product_id = ? AND variant_id = ?',
-                [orderId, item.product_id, item.variant_id || 0]
-            );
+            let existing = [];
+            try {
+                if (hasVariantId) {
+                    [existing] = await connection.execute(
+                        'SELECT id, quantity FROM order_items WHERE order_id = ? AND product_id = ? AND variant_id = ?',
+                        [orderId, item.product_id, item.variant_id || 0]
+                    );
+                } else {
+                    [existing] = await connection.execute(
+                        'SELECT id, quantity FROM order_items WHERE order_id = ? AND product_id = ?',
+                        [orderId, item.product_id]
+                    );
+                }
+            } catch (selectErr) {
+                // If selective query fails, assume no existing item
+                existing = [];
+            }
 
             if (existing.length > 0) {
                 // Update quantity (merge)
@@ -92,23 +112,42 @@ class Order {
             } else {
                 // Insert new
                 try {
-                    await connection.execute(
-                        'INSERT INTO order_items (order_id, product_id, variant_id, quantity, final_price) VALUES (?, ?, ?, ?, ?)',
-                        [orderId, item.product_id, item.variant_id || 0, item.quantity, item.final_price || null]
-                    );
+                    if (hasVariantId) {
+                        await connection.execute(
+                            'INSERT INTO order_items (order_id, product_id, variant_id, quantity, final_price) VALUES (?, ?, ?, ?, ?)',
+                            [orderId, item.product_id, item.variant_id || 0, item.quantity, item.final_price || null]
+                        );
+                    } else {
+                        await connection.execute(
+                            'INSERT INTO order_items (order_id, product_id, quantity, final_price) VALUES (?, ?, ?, ?)',
+                            [orderId, item.product_id, item.quantity, item.final_price || null]
+                        );
+                    }
                 } catch (itemErr) {
                     try {
-                        // Fallback: Schema has final_price but also requires unit_price
-                        await connection.execute(
-                            'INSERT INTO order_items (order_id, product_id, variant_id, quantity, unit_price, final_price) VALUES (?, ?, ?, ?, ?, ?)',
-                            [orderId, item.product_id, item.variant_id || 0, item.quantity, 0, item.final_price || null]
-                        );
+                        if (hasVariantId) {
+                            await connection.execute(
+                                'INSERT INTO order_items (order_id, product_id, variant_id, quantity, unit_price, final_price) VALUES (?, ?, ?, ?, ?, ?)',
+                                [orderId, item.product_id, item.variant_id || 0, item.quantity, 0, item.final_price || null]
+                            );
+                        } else {
+                            await connection.execute(
+                                'INSERT INTO order_items (order_id, product_id, quantity, unit_price, final_price) VALUES (?, ?, ?, ?, ?)',
+                                [orderId, item.product_id, item.quantity, 0, item.final_price || null]
+                            );
+                        }
                     } catch (itemErr2) {
-                        // Fallback 2: Original schema - no final_price column at all
-                        await connection.execute(
-                            'INSERT INTO order_items (order_id, product_id, variant_id, quantity, unit_price) VALUES (?, ?, ?, ?, ?)',
-                            [orderId, item.product_id, item.variant_id || 0, item.quantity, 0]
-                        );
+                        if (hasVariantId) {
+                            await connection.execute(
+                                'INSERT INTO order_items (order_id, product_id, variant_id, quantity, unit_price) VALUES (?, ?, ?, ?, ?)',
+                                [orderId, item.product_id, item.variant_id || 0, item.quantity, 0]
+                            );
+                        } else {
+                            await connection.execute(
+                                'INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)',
+                                [orderId, item.product_id, item.quantity, 0]
+                            );
+                        }
                     }
                 }
             }
