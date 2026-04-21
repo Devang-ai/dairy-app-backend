@@ -114,16 +114,15 @@ exports.exportRouteXLSX = async (req, res) => {
             return res.status(400).json({ message: 'Date is required' });
         }
 
-        let rows = [];
-        // Detect if variant_id exists to avoid crashes
-        let hasVariantId = true;
         try {
-            await db.execute('SELECT variant_id FROM order_items LIMIT 1');
-        } catch (err) {
-            hasVariantId = false;
-        }
+            // Detect if packet fields exist
+            let hasPacketFields = true;
+            try {
+                await db.execute('SELECT packet_size FROM order_items LIMIT 1');
+            } catch (err) {
+                hasPacketFields = false;
+            }
 
-        try {
             let query = `
                 SELECT 
                     o.id AS OrderID,
@@ -133,6 +132,7 @@ exports.exportRouteXLSX = async (req, res) => {
                     DATE_FORMAT(o.delivery_date, '%d-%b-%Y') AS DeliveryDate,
                     p.name AS Product,
                     ${hasVariantId ? 'pv.variant_name' : 'NULL as variant_name'},
+                    ${hasPacketFields ? 'oi.packet_count, oi.packet_size, oi.unit_type,' : 'NULL as packet_count, NULL as packet_size, NULL as unit_type,'}
                     oi.quantity AS qty_raw
                 FROM orders o
                 JOIN users u ON o.user_id = u.id
@@ -203,8 +203,8 @@ exports.exportRouteXLSX = async (req, res) => {
             const qty = parseFloat(row.qty_raw) || 0;
             ordersMap.get(row.OrderID).items.push({
                 Product:  row.Product,
-                Unit:     row.variant_name || (qty >= 1 ? '1 kg' : 'gm'),
-                Quantity: qty
+                Unit:     row.variant_name || (parseFloat(row.qty_raw) >= 1 ? '1 kg' : 'gm'),
+                Quantity: row.qty_raw
             });
         }
 

@@ -17,6 +17,9 @@ exports.placeOrder = async (req, res) => {
             product_id: item.product_id,
             variant_id: item.variant_id,
             quantity: parseFloat(item.quantity),
+            packet_size: item.packet_size,
+            unit_type: item.unit_type,
+            packet_count: item.packet_count,
             final_price: null
         }));
 

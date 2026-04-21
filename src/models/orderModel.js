@@ -83,72 +83,72 @@ class Order {
             hasVariantId = false;
         }
 
+        // Detect if packet fields exist
+        let hasPacketFields = true;
+        try {
+            await connection.execute('SELECT packet_size FROM order_items LIMIT 1');
+        } catch (err) {
+            hasPacketFields = false;
+        }
+
         for (const item of items) {
             let existing = [];
             try {
                 if (hasVariantId) {
                     [existing] = await connection.execute(
-                        'SELECT id, quantity FROM order_items WHERE order_id = ? AND product_id = ? AND variant_id = ?',
+                        'SELECT id, quantity, packet_count FROM order_items WHERE order_id = ? AND product_id = ? AND variant_id = ?',
                         [orderId, item.product_id, item.variant_id || 0]
                     );
                 } else {
                     [existing] = await connection.execute(
-                        'SELECT id, quantity FROM order_items WHERE order_id = ? AND product_id = ?',
+                        'SELECT id, quantity, packet_count FROM order_items WHERE order_id = ? AND product_id = ?',
                         [orderId, item.product_id]
                     );
                 }
             } catch (selectErr) {
-                // If selective query fails, assume no existing item
-                existing = [];
+                console.warn('[OrderModel] Select error (fallback used):', selectErr.message);
+                [existing] = await connection.execute(
+                    'SELECT id, quantity FROM order_items WHERE order_id = ? AND product_id = ?',
+                    [orderId, item.product_id]
+                );
             }
 
             if (existing.length > 0) {
-                // Update quantity (merge)
-                const newQty = parseFloat(existing[0].quantity) + parseFloat(item.quantity);
-                await connection.execute(
-                    'UPDATE order_items SET quantity = ? WHERE id = ?',
-                    [newQty, existing[0].id]
-                );
+                // UPDATE: Add quantities
+                const newQuantity = parseFloat(existing[0].quantity) + parseFloat(item.quantity);
+                const newPacketCount = hasPacketFields ? (parseInt(existing[0].packet_count || 0) + parseInt(item.packet_count || 0)) : null;
+
+                let updateSql = 'UPDATE order_items SET quantity = ?';
+                let updateParams = [newQuantity];
+                
+                if (hasPacketFields && item.packet_count !== undefined) {
+                    updateSql += ', packet_count = ?';
+                    updateParams.push(newPacketCount);
+                }
+                
+                updateSql += ' WHERE id = ?';
+                updateParams.push(existing[0].id);
+                
+                await connection.execute(updateSql, updateParams);
             } else {
-                // Insert new
-                try {
+                // INSERT: New item
+                if (hasPacketFields && item.packet_size !== undefined) {
+                    let insertSql = 'INSERT INTO order_items (order_id, product_id, quantity, final_price, packet_size, unit_type, packet_count';
+                    let insertParams = [orderId, item.product_id, item.quantity, item.final_price || null, item.packet_size, item.unit_type, item.packet_count];
+                    
                     if (hasVariantId) {
-                        await connection.execute(
-                            'INSERT INTO order_items (order_id, product_id, variant_id, quantity, final_price) VALUES (?, ?, ?, ?, ?)',
-                            [orderId, item.product_id, item.variant_id || 0, item.quantity, item.final_price || null]
-                        );
-                    } else {
-                        await connection.execute(
-                            'INSERT INTO order_items (order_id, product_id, quantity, final_price) VALUES (?, ?, ?, ?)',
-                            [orderId, item.product_id, item.quantity, item.final_price || null]
-                        );
+                        insertSql += ', variant_id';
+                        insertParams.push(item.variant_id || 0);
                     }
-                } catch (itemErr) {
-                    try {
-                        if (hasVariantId) {
-                            await connection.execute(
-                                'INSERT INTO order_items (order_id, product_id, variant_id, quantity, unit_price, final_price) VALUES (?, ?, ?, ?, ?, ?)',
-                                [orderId, item.product_id, item.variant_id || 0, item.quantity, 0, item.final_price || null]
-                            );
-                        } else {
-                            await connection.execute(
-                                'INSERT INTO order_items (order_id, product_id, quantity, unit_price, final_price) VALUES (?, ?, ?, ?, ?)',
-                                [orderId, item.product_id, item.quantity, 0, item.final_price || null]
-                            );
-                        }
-                    } catch (itemErr2) {
-                        if (hasVariantId) {
-                            await connection.execute(
-                                'INSERT INTO order_items (order_id, product_id, variant_id, quantity, unit_price) VALUES (?, ?, ?, ?, ?)',
-                                [orderId, item.product_id, item.variant_id || 0, item.quantity, 0]
-                            );
-                        } else {
-                            await connection.execute(
-                                'INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)',
-                                [orderId, item.product_id, item.quantity, 0]
-                            );
-                        }
-                    }
+                    
+                    insertSql += ') VALUES (?, ?, ?, ?, ?, ?, ?' + (hasVariantId ? ', ?' : '') + ')';
+                    await connection.execute(insertSql, insertParams);
+                } else {
+                    // Fallback to legacy insertion
+                    let insertSql = 'INSERT INTO order_items (order_id, product_id, quantity, final_price' + (hasVariantId ? ', variant_id' : '') + ') VALUES (?, ?, ?, ?' + (hasVariantId ? ', ?' : '') + ')';
+                    let insertParams = [orderId, item.product_id, item.quantity, item.final_price || null];
+                    if (hasVariantId) insertParams.push(item.variant_id || 0);
+                    await connection.execute(insertSql, insertParams);
                 }
             }
         }
@@ -213,7 +213,7 @@ class Order {
             const [rows] = await db.execute(query, params);
             return rows;
         } catch (error) {
-            return rows;
+            return [];
         }
     }
 
@@ -239,14 +239,39 @@ class Order {
     }
 
     static async getOrderItems(orderId) {
+        let hasVariantId = true;
         try {
-            const [rows] = await db.execute(`
-                SELECT oi.*, p.name as product_name, pv.variant_name
+            await db.execute('SELECT variant_id FROM order_items LIMIT 1');
+        } catch (err) {
+            hasVariantId = false;
+        }
+
+        try {
+            // Detect if packet fields exist
+            let hasPacketFields = true;
+            try {
+                await db.execute('SELECT packet_size FROM order_items LIMIT 1');
+            } catch (err) {
+                hasPacketFields = false;
+            }
+
+            const query = `
+                SELECT 
+                    oi.id,
+                    oi.product_id,
+                    oi.quantity,
+                    oi.final_price,
+                    ${hasPacketFields ? 'oi.packet_size, oi.unit_type, oi.packet_count, ' : ''}
+                    p.name as product_name,
+                    p.image_url,
+                    p.category,
+                    ${hasVariantId ? 'oi.variant_id, pv.variant_name' : 'NULL as variant_id, NULL as variant_name'}
                 FROM order_items oi
-                LEFT JOIN products p ON oi.product_id = p.id
-                LEFT JOIN product_variants pv ON oi.variant_id = pv.id
+                JOIN products p ON oi.product_id = p.id
+                ${hasVariantId ? 'LEFT JOIN product_variants pv ON oi.variant_id = pv.id' : ''}
                 WHERE oi.order_id = ?
-            `, [orderId]);
+            `;
+            const [rows] = await db.execute(query, [orderId]);
             return rows;
         } catch (error) {
             // Fallback for missing variant_id column
