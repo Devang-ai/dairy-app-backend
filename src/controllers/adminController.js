@@ -114,7 +114,9 @@ exports.exportRouteXLSX = async (req, res) => {
             return res.status(400).json({ message: 'Date is required' });
         }
 
-        // Fetch data (sa            let query = `
+        let rows = [];
+        try {
+            let query = `
                 SELECT 
                     o.id AS OrderID,
                     u.full_name AS CustomerName,
@@ -158,8 +160,6 @@ exports.exportRouteXLSX = async (req, res) => {
                 JOIN products p ON oi.product_id = p.id
                 LEFT JOIN product_variants pv ON oi.variant_id = pv.id
                 WHERE DATE(o.delivery_date) = DATE_ADD(?, INTERVAL 1 DAY)
-            `;
-   WHERE DATE(o.delivery_date) = DATE_ADD(?, INTERVAL 1 DAY)
             `;
             const params = [date];
             if (route_id && route_id !== 'all' && route_id !== 'null') {
