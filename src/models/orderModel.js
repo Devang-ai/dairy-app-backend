@@ -20,37 +20,13 @@ class Order {
                 // FALLBACK: Use original schema if migration is pending (no route_id / business_date columns)
                 console.log('[OrderModel] Fallback insertion due to:', err.message);
                 const [orderResult] = await connection.execute(
-                    'INSERT INTO orders (user_id, delivery_date, total_amount, status) VALUES (?, ?, ?, ?)',
+                    'INSERT INTO orders (user_id, delivery_date, total_amount, status) VALUES (?, ?, ?)',
                     [user_id, delivery_date, total_amount || 0, 'pending']
                 );
                 orderId = orderResult.insertId;
             }
 
-            for (const item of items) {
-                try {
-                    // Wholesale/migrated schema: quantity as decimal, final_price nullable
-                    await connection.execute(
-                        'INSERT INTO order_items (order_id, product_id, quantity, final_price) VALUES (?, ?, ?, ?)',
-                        [orderId, item.product_id, item.quantity, item.final_price || null]
-                    );
-                } catch (itemErr) {
-                    try {
-                        // Fallback 1: Schema has final_price but also requires variant_id and unit_price
-                        console.log('[OrderModel] Fallback item insert (with variant_id):', itemErr.message);
-                        await connection.execute(
-                            'INSERT INTO order_items (order_id, product_id, variant_id, quantity, unit_price, final_price) VALUES (?, ?, ?, ?, ?, ?)',
-                            [orderId, item.product_id, item.variant_id || 0, item.quantity, 0, item.final_price || null]
-                        );
-                    } catch (itemErr2) {
-                        // Fallback 2: Original schema - no final_price column at all
-                        console.log('[OrderModel] Fallback item insert (original schema):', itemErr2.message);
-                        await connection.execute(
-                            'INSERT INTO order_items (order_id, product_id, variant_id, quantity, unit_price) VALUES (?, ?, ?, ?, ?)',
-                            [orderId, item.product_id, item.variant_id || 0, item.quantity, 0]
-                        );
-                    }
-                }
-            }
+            await this.addOrUpdateItemsInternal(connection, orderId, items);
 
             await connection.commit();
             return orderId;
@@ -59,6 +35,83 @@ class Order {
             throw error;
         } finally {
             connection.release();
+        }
+    }
+
+    static async findByUserAndDate(userId, businessDate) {
+        try {
+            const [rows] = await db.execute(
+                'SELECT * FROM orders WHERE user_id = ? AND business_date = ? LIMIT 1',
+                [userId, businessDate]
+            );
+            return rows[0];
+        } catch (error) {
+            // Fallback for old schema
+            const [rows] = await db.execute(
+                'SELECT * FROM orders WHERE user_id = ? AND DATE(delivery_date) = DATE_ADD(?, INTERVAL 1 DAY) LIMIT 1',
+                [userId, businessDate]
+            );
+            return rows[0];
+        }
+    }
+
+    static async addOrUpdateItems(orderId, items) {
+        const connection = await db.getConnection();
+        try {
+            await connection.beginTransaction();
+            
+            await this.addOrUpdateItemsInternal(connection, orderId, items);
+            
+            // Recalculate order total if needed (wholesale doesn't use automation usually)
+            
+            await connection.commit();
+            return true;
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    }
+
+    static async addOrUpdateItemsInternal(connection, orderId, items) {
+        for (const item of items) {
+            // Check if item already exists in this order
+            const [existing] = await connection.execute(
+                'SELECT id, quantity FROM order_items WHERE order_id = ? AND product_id = ? AND variant_id = ?',
+                [orderId, item.product_id, item.variant_id || 0]
+            );
+
+            if (existing.length > 0) {
+                // Update quantity (merge)
+                const newQty = parseFloat(existing[0].quantity) + parseFloat(item.quantity);
+                await connection.execute(
+                    'UPDATE order_items SET quantity = ? WHERE id = ?',
+                    [newQty, existing[0].id]
+                );
+            } else {
+                // Insert new
+                try {
+                    await connection.execute(
+                        'INSERT INTO order_items (order_id, product_id, variant_id, quantity, final_price) VALUES (?, ?, ?, ?, ?)',
+                        [orderId, item.product_id, item.variant_id || 0, item.quantity, item.final_price || null]
+                    );
+                } catch (itemErr) {
+                    try {
+                        // Fallback: Schema has final_price but also requires unit_price
+                        await connection.execute(
+                            'INSERT INTO order_items (order_id, product_id, variant_id, quantity, unit_price, final_price) VALUES (?, ?, ?, ?, ?, ?)',
+                            [orderId, item.product_id, item.variant_id || 0, item.quantity, 0, item.final_price || null]
+                        );
+                    } catch (itemErr2) {
+                        // Fallback 2: Original schema - no final_price column at all
+                        await connection.execute(
+                            'INSERT INTO order_items (order_id, product_id, variant_id, quantity, unit_price) VALUES (?, ?, ?, ?, ?)',
+                            [orderId, item.product_id, item.variant_id || 0, item.quantity, 0]
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -150,9 +203,10 @@ class Order {
 
     static async getOrderItems(orderId) {
         const [rows] = await db.execute(`
-            SELECT oi.*, p.name as product_name
+            SELECT oi.*, p.name as product_name, pv.variant_name
             FROM order_items oi
             LEFT JOIN products p ON oi.product_id = p.id
+            LEFT JOIN product_variants pv ON oi.variant_id = pv.id
             WHERE oi.order_id = ?
         `, [orderId]);
         return rows;
@@ -209,12 +263,20 @@ class Order {
         }
     }
 
-    // Format quantity for display (0.100 -> "100 gm", 1 -> "1 kg")
-    static formatQuantity(quantity) {
-        if (quantity >= 1) {
-            return `${quantity} kg`;
+    // Format quantity for display (Unit x Quantity)
+    static formatQuantity(quantity, variantName = '') {
+        const qty = parseFloat(quantity) || 0;
+        const cleanQty = parseFloat(qty.toFixed(3));
+        
+        if (variantName) {
+            return `${variantName} × ${cleanQty}`;
+        }
+
+        // Fallback to old logic if no variant name provided
+        if (qty >= 1) {
+            return `${cleanQty} kg`;
         } else {
-            return `${(quantity * 1000).toFixed(0)} gm`;
+            return `${Math.round(qty * 1000)} gm`;
         }
     }
 }

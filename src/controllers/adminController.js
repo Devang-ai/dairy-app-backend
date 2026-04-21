@@ -114,10 +114,7 @@ exports.exportRouteXLSX = async (req, res) => {
             return res.status(400).json({ message: 'Date is required' });
         }
 
-        // Fetch data (same dual-schema approach as CSV export)
-        let rows = [];
-        try {
-            let query = `
+        // Fetch data (sa            let query = `
                 SELECT 
                     o.id AS OrderID,
                     u.full_name AS CustomerName,
@@ -125,12 +122,14 @@ exports.exportRouteXLSX = async (req, res) => {
                     u.address AS Address,
                     DATE_FORMAT(o.delivery_date, '%d-%b-%Y') AS DeliveryDate,
                     p.name AS Product,
+                    pv.variant_name,
                     oi.quantity AS qty_raw
                 FROM orders o
                 JOIN users u ON o.user_id = u.id
                 LEFT JOIN routes r ON o.route_id = r.id
                 JOIN order_items oi ON o.id = oi.order_id
                 JOIN products p ON oi.product_id = p.id
+                LEFT JOIN product_variants pv ON oi.variant_id = pv.id
                 WHERE o.business_date = ?
             `;
             const params = [date];
@@ -150,13 +149,17 @@ exports.exportRouteXLSX = async (req, res) => {
                     u.address AS Address,
                     DATE_FORMAT(o.delivery_date, '%d-%b-%Y') AS DeliveryDate,
                     p.name AS Product,
+                    pv.variant_name,
                     oi.quantity AS qty_raw
                 FROM orders o
                 JOIN users u ON o.user_id = u.id
-                LEFT JOIN routes r ON u.route_id = r.id
+                LEFT JOIN routes r ON o.route_id = r.id
                 JOIN order_items oi ON o.id = oi.order_id
                 JOIN products p ON oi.product_id = p.id
+                LEFT JOIN product_variants pv ON oi.variant_id = pv.id
                 WHERE DATE(o.delivery_date) = DATE_ADD(?, INTERVAL 1 DAY)
+            `;
+   WHERE DATE(o.delivery_date) = DATE_ADD(?, INTERVAL 1 DAY)
             `;
             const params = [date];
             if (route_id && route_id !== 'all' && route_id !== 'null') {
@@ -188,9 +191,12 @@ exports.exportRouteXLSX = async (req, res) => {
                     items: []
                 });
             }
+            // Parse unit and quantity
+            const qty = parseFloat(row.qty_raw) || 0;
             ordersMap.get(row.OrderID).items.push({
                 Product:  row.Product,
-                Quantity: formatQty(row.qty_raw)
+                Unit:     row.variant_name || (qty >= 1 ? '1 kg' : 'gm'),
+                Quantity: qty
             });
         }
 
@@ -206,12 +212,13 @@ exports.exportRouteXLSX = async (req, res) => {
             { key: 'Address',      width: 28 },
             { key: 'DeliveryDate', width: 16 },
             { key: 'Product',      width: 18 },
-            { key: 'Quantity',     width: 14 },
+            { key: 'Unit',         width: 10 },
+            { key: 'Quantity',     width: 10 },
         ];
 
         // Header row styling
         const headerRow = worksheet.addRow([
-            'Order ID', 'Customer Name', 'Route', 'Address', 'Delivery Date', 'Product', 'Quantity'
+            'Order ID', 'Customer Name', 'Route', 'Address', 'Delivery Date', 'Product', 'Unit', 'Qty'
         ]);
         headerRow.height = 22;
         headerRow.eachCell(cell => {
@@ -240,6 +247,7 @@ exports.exportRouteXLSX = async (req, res) => {
                     idx === 0 ? order.Address      : '',
                     idx === 0 ? order.DeliveryDate : '',
                     item.Product,
+                    item.Unit,
                     item.Quantity,
                 ]);
                 row.height = 20;
@@ -271,15 +279,24 @@ exports.exportRouteXLSX = async (req, res) => {
                     // Re-apply alignment to the merged cell
                     const cell = worksheet.getCell(startRow, col);
                     cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-                    cell.border = {
-                        top:    { style: 'medium', color: { argb: 'FF1A5276' } },
-                        bottom: { style: 'medium', color: { argb: 'FF1A5276' } },
-                        left:   { style: 'medium', color: { argb: 'FF1A5276' } },
-                        right:  { style: 'medium', color: { argb: 'FF1A5276' } },
-                    };
                 });
             }
+
+            // Apply medium borders for the entire order block
+            exports.applyGroupBorders(worksheet, startRow, endRow, 8, 'FF1A5276');
         }
+
+        // Auto-fit columns
+        worksheet.columns.forEach(column => {
+            let maxLength = 0;
+            column.eachCell({ includeEmpty: true }, cell => {
+                const columnLength = cell.value ? cell.value.toString().length : 10;
+                if (columnLength > maxLength) {
+                    maxLength = columnLength;
+                }
+            });
+            column.width = maxLength < 10 ? 10 : maxLength + 2;
+        });
 
         // Stream as .xlsx response
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -314,23 +331,18 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 r.name AS Route,
                 o.id AS OrderID,
                 DATE_FORMAT(o.delivery_date, '%d-%b-%Y') AS DeliveryDate,
-                o.status AS Status,
                 p.name AS Product,
+                pv.variant_name,
                 oi.quantity AS qty_raw
             FROM users u
             JOIN orders o ON o.user_id = u.id
             LEFT JOIN routes r ON u.route_id = r.id
             JOIN order_items oi ON o.id = oi.order_id
             JOIN products p ON oi.product_id = p.id
+            LEFT JOIN product_variants pv ON oi.variant_id = pv.id
             WHERE DATE(o.delivery_date) BETWEEN ? AND ?
             ORDER BY r.name, u.full_name, o.delivery_date, o.id
         `, [startDate, endDate]);
-
-        // Helper: format quantity
-        const formatQty = (qty) => {
-            const n = parseFloat(qty) || 0;
-            return n >= 1 ? parseFloat(n.toFixed(3)) + ' kg' : Math.round(n * 1000) + ' gm';
-        };
 
         const workbook  = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet(`Report ${MONTHS_NAME[parseInt(month)-1]} ${year}`);
@@ -343,13 +355,13 @@ exports.exportMonthlyXLSX = async (req, res) => {
             { key: 'OrderID',      width: 10 },
             { key: 'DeliveryDate', width: 15 },
             { key: 'Product',      width: 20 },
-            { key: 'Quantity',     width: 12 },
-            { key: 'Status',       width: 12 },
+            { key: 'Unit',         width: 10 },
+            { key: 'Quantity',     width: 10 },
         ];
 
         // Header Style
         const headerRow = worksheet.addRow([
-            'User ID', 'Customer Name', 'Route', 'Order ID', 'Date', 'Product', 'Quantity', 'Status'
+            'User ID', 'Customer Name', 'Route', 'Order ID', 'Date', 'Product', 'Unit', 'Qty'
         ]);
         headerRow.height = 25;
         headerRow.eachCell(cell => {
@@ -362,62 +374,59 @@ exports.exportMonthlyXLSX = async (req, res) => {
             };
         });
 
-        // Data processing for merging
-        // We'll track where each customer starts and ends
-        let currentUserId = null;
-        let customerStartRow = 0;
+        let currentOrderId = null;
+        let lastUserId = null;
+        let orderStartRow = 0;
 
         rows.forEach((row, index) => {
+            const isFirstInOrder = row.OrderID !== currentOrderId;
+            const isFirstUser = row.UserID !== lastUserId;
+            
+            if (isFirstInOrder) {
+                // Apply borders to the previous order block if exists
+                if (currentOrderId !== null) {
+                    const endRow = worksheet.rowCount;
+                    exports.applyGroupBorders(worksheet, orderStartRow, endRow, 8, 'FF2D5E55');
+                }
+                currentOrderId = row.OrderID;
+                orderStartRow = worksheet.rowCount + 1;
+            }
+            lastUserId = row.UserID;
+
+            const qty = parseFloat(row.qty_raw) || 0;
             const excelRow = worksheet.addRow([
-                row.UserID,
-                row.CustomerName,
-                row.Route || 'N/A',
-                row.OrderID,
-                row.DeliveryDate,
+                isFirstUser ? row.UserID : '',
+                isFirstUser ? row.CustomerName : '',
+                isFirstUser ? row.Route || 'N/A' : '',
+                isFirstInOrder ? row.OrderID : '',
+                isFirstInOrder ? row.DeliveryDate : '',
                 row.Product,
-                formatQty(row.qty_raw),
-                row.Status
+                row.variant_name || (qty >= 1 ? '1 kg' : 'gm'),
+                qty
             ]);
             excelRow.height = 20;
 
-            // Basic cell styling
             excelRow.eachCell({ includeEmpty: true }, (cell) => {
                 cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-                cell.border = {
-                    top:    { style: 'thin', color: { argb: 'FFDDE1DF' } },
-                    bottom: { style: 'thin', color: { argb: 'FFDDE1DF' } },
-                    left:   { style: 'thin', color: { argb: 'FFDDE1DF' } },
-                    right:  { style: 'thin', color: { argb: 'FFDDE1DF' } },
-                };
             });
 
-            // Handle Customer Merging (ID, Name, Route)
-            if (row.UserID !== currentUserId) {
-                // If not first row, merge previous customer block
-                if (currentUserId !== null) {
-                    const endRow = worksheet.rowCount - 1;
-                    if (endRow > customerStartRow) {
-                        worksheet.mergeCells(customerStartRow, 1, endRow, 1); // UserID
-                        worksheet.mergeCells(customerStartRow, 2, endRow, 2); // CustomerName
-                        worksheet.mergeCells(customerStartRow, 3, endRow, 3); // Route
-                    }
-                }
-                currentUserId = row.UserID;
-                customerStartRow = worksheet.rowCount;
-            }
-
-            // Final row merge for the last customer
+            // Handle last row merge/border
             if (index === rows.length - 1) {
                 const endRow = worksheet.rowCount;
-                if (endRow > customerStartRow) {
-                    worksheet.mergeCells(customerStartRow, 1, endRow, 1);
-                    worksheet.mergeCells(customerStartRow, 2, endRow, 2);
-                    worksheet.mergeCells(customerStartRow, 3, endRow, 3);
-                }
+                exports.applyGroupBorders(worksheet, orderStartRow, endRow, 8, 'FF2D5E55');
             }
         });
 
-        // Response
+        // Auto-fit columns
+        worksheet.columns.forEach(column => {
+            let maxLength = 0;
+            column.eachCell({ includeEmpty: true }, cell => {
+                const columnLength = cell.value ? cell.value.toString().length : 10;
+                if (columnLength > maxLength) maxLength = columnLength;
+            });
+            column.width = maxLength + 2;
+        });
+
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', `attachment; filename="Monthly_Report_${month}_${year}.xlsx"`);
         await workbook.xlsx.write(res);
@@ -426,6 +435,21 @@ exports.exportMonthlyXLSX = async (req, res) => {
     } catch (error) {
         console.error('[AdminController] Monthly XLSX Error:', error);
         res.status(500).json({ message: 'Error generating monthly Excel file', error: error.message });
+    }
+};
+
+// Helper for borders
+exports.applyGroupBorders = (worksheet, startRow, endRow, totalCols, color) => {
+    for (let r = startRow; r <= endRow; r++) {
+        for (let c = 1; c <= totalCols; c++) {
+            const cell = worksheet.getCell(r, c);
+            cell.border = {
+                top:    { style: r === startRow ? 'medium' : 'thin', color: { argb: color } },
+                bottom: { style: r === endRow ? 'medium' : 'thin', color: { argb: color } },
+                left:   { style: c === 1 ? 'medium' : 'thin', color: { argb: color } },
+                right:  { style: c === totalCols ? 'medium' : 'thin', color: { argb: color } },
+            };
+        }
     }
 };
 

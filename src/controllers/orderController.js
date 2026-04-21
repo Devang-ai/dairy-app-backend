@@ -12,16 +12,31 @@ exports.placeOrder = async (req, res) => {
         // Calculate business and delivery dates based on 2 AM logic
         const business_date = OrderService.getBusinessDate();
         const delivery_date = OrderService.getDeliveryDate(business_date);
-        
-        // Wholesale: No pricing at checkout, total_amount will be null initially
-        const total_amount = null;
 
         const formattedItems = items.map(item => ({
             product_id: item.product_id,
             variant_id: item.variant_id,
-            quantity: parseFloat(item.quantity), // Support decimal quantities like 0.100, 0.500, 1, 2
-            final_price: null // Admin will set this later
+            quantity: parseFloat(item.quantity),
+            final_price: null
         }));
+
+        // CHECK IF ORDER ALREADY EXISTS FOR TODAY
+        const existingOrder = await Order.findByUserAndDate(user_id, business_date);
+
+        if (existingOrder) {
+            console.log(`[OrderController] Merging items into existing order ${existingOrder.id} for user ${user_id}`);
+            await Order.addOrUpdateItems(existingOrder.id, formattedItems);
+            
+            return res.status(200).json({ 
+                message: 'Order updated successfully (merged)', 
+                orderId: existingOrder.id, 
+                business_date,
+                delivery_date 
+            });
+        }
+
+        // Wholesale: No pricing at checkout, total_amount will be null initially
+        const total_amount = null;
 
         const orderId = await Order.create({
             user_id,
@@ -424,10 +439,12 @@ exports.getMonthlyReport = async (req, res) => {
                 DATE_FORMAT(o.delivery_date, '%d-%b-%Y') AS delivery_date,
                 o.status,
                 p.name AS product_name,
+                pv.variant_name,
                 oi.quantity
             FROM orders o
             JOIN order_items oi ON oi.order_id = o.id
             JOIN products p ON p.id = oi.product_id
+            LEFT JOIN product_variants pv ON oi.variant_id = pv.id
             WHERE DATE(o.delivery_date) BETWEEN ? AND ?
             ${routeFilter}
             ORDER BY o.user_id, o.delivery_date, o.id
@@ -450,9 +467,7 @@ exports.getMonthlyReport = async (req, res) => {
                 });
             }
             const qty = parseFloat(item.quantity) || 0;
-            const qtyStr = qty >= 1
-                ? parseFloat(qty.toFixed(3)) + ' kg'
-                : Math.round(qty * 1000) + ' gm';
+            const qtyStr = Order.formatQuantity(qty, item.variant_name);
             user.orders.get(item.order_id).items.push({
                 product: item.product_name,
                 quantity: qtyStr
