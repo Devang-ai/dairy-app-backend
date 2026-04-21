@@ -115,6 +115,14 @@ exports.exportRouteXLSX = async (req, res) => {
         }
 
         let rows = [];
+        // Detect if variant_id exists to avoid crashes
+        let hasVariantId = true;
+        try {
+            await db.execute('SELECT variant_id FROM order_items LIMIT 1');
+        } catch (err) {
+            hasVariantId = false;
+        }
+
         try {
             let query = `
                 SELECT 
@@ -124,14 +132,14 @@ exports.exportRouteXLSX = async (req, res) => {
                     u.address AS Address,
                     DATE_FORMAT(o.delivery_date, '%d-%b-%Y') AS DeliveryDate,
                     p.name AS Product,
-                    pv.variant_name,
+                    ${hasVariantId ? 'pv.variant_name' : 'NULL as variant_name'},
                     oi.quantity AS qty_raw
                 FROM orders o
                 JOIN users u ON o.user_id = u.id
                 LEFT JOIN routes r ON o.route_id = r.id
                 JOIN order_items oi ON o.id = oi.order_id
                 JOIN products p ON oi.product_id = p.id
-                LEFT JOIN product_variants pv ON oi.variant_id = pv.id
+                ${hasVariantId ? 'LEFT JOIN product_variants pv ON oi.variant_id = pv.id' : ''}
                 WHERE o.business_date = ?
             `;
             const params = [date];
@@ -142,7 +150,7 @@ exports.exportRouteXLSX = async (req, res) => {
             query += ' ORDER BY r.name, u.full_name, o.id';
             [rows] = await db.execute(query, params);
         } catch (sqlErr) {
-            // Fallback: old schema
+            // Fallback: old schema (DATE comparison)
             let query = `
                 SELECT 
                     o.id AS OrderID,
@@ -151,14 +159,14 @@ exports.exportRouteXLSX = async (req, res) => {
                     u.address AS Address,
                     DATE_FORMAT(o.delivery_date, '%d-%b-%Y') AS DeliveryDate,
                     p.name AS Product,
-                    pv.variant_name,
+                    ${hasVariantId ? 'pv.variant_name' : 'NULL as variant_name'},
                     oi.quantity AS qty_raw
                 FROM orders o
                 JOIN users u ON o.user_id = u.id
                 LEFT JOIN routes r ON o.route_id = r.id
                 JOIN order_items oi ON o.id = oi.order_id
                 JOIN products p ON oi.product_id = p.id
-                LEFT JOIN product_variants pv ON oi.variant_id = pv.id
+                ${hasVariantId ? 'LEFT JOIN product_variants pv ON oi.variant_id = pv.id' : ''}
                 WHERE DATE(o.delivery_date) = DATE_ADD(?, INTERVAL 1 DAY)
             `;
             const params = [date];
@@ -322,6 +330,14 @@ exports.exportMonthlyXLSX = async (req, res) => {
         const lastDay   = new Date(parseInt(year), parseInt(month), 0).getDate();
         const endDate   = `${year}-${pad}-${lastDay}`;
 
+        // Detect if variant_id exists
+        let hasVariantId = true;
+        try {
+            await db.execute('SELECT variant_id FROM order_items LIMIT 1');
+        } catch (err) {
+            hasVariantId = false;
+        }
+
         // Fetch all order items for the month grouped by customer and order
         const [rows] = await db.execute(`
             SELECT 
@@ -332,14 +348,14 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 o.id AS OrderID,
                 DATE_FORMAT(o.delivery_date, '%d-%b-%Y') AS DeliveryDate,
                 p.name AS Product,
-                pv.variant_name,
+                ${hasVariantId ? 'pv.variant_name' : 'NULL as variant_name'},
                 oi.quantity AS qty_raw
             FROM users u
             JOIN orders o ON o.user_id = u.id
             LEFT JOIN routes r ON u.route_id = r.id
             JOIN order_items oi ON o.id = oi.order_id
             JOIN products p ON oi.product_id = p.id
-            LEFT JOIN product_variants pv ON oi.variant_id = pv.id
+            ${hasVariantId ? 'LEFT JOIN product_variants pv ON oi.variant_id = pv.id' : ''}
             WHERE DATE(o.delivery_date) BETWEEN ? AND ?
             ORDER BY r.name, u.full_name, o.delivery_date, o.id
         `, [startDate, endDate]);
