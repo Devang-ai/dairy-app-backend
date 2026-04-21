@@ -155,8 +155,16 @@ class Order {
     }
 
     static async getAllDetail(filters) {
-        const { route_id, date, user_id } = filters;
+        const { route_id, date, user_id, startDate } = filters;
         
+        // Detect if business_date exists
+        let hasBusinessDate = true;
+        try {
+            await db.execute('SELECT business_date FROM orders LIMIT 1');
+        } catch (err) {
+            hasBusinessDate = false;
+        }
+
         try {
             let query = `
                 SELECT o.*, u.full_name as username, u.contact, r.name as route_name
@@ -167,27 +175,33 @@ class Order {
             `;
             const params = [];
 
+            if (hasBusinessDate) {
+                if (startDate) {
+                    query += ' AND (o.business_date >= ? OR DATE(o.delivery_date) >= ?)';
+                    params.push(startDate, startDate);
+                } else if (date) {
+                    if (user_id) {
+                        query += ' AND (o.business_date = ? OR DATE(o.delivery_date) = ?)';
+                        params.push(date, date);
+                    } else {
+                        query += ' AND o.business_date = ?';
+                        params.push(date);
+                    }
+                }
+            } else {
+                // LEGACY FALLBACK: business_date missing
+                if (startDate) {
+                    query += ' AND DATE(o.delivery_date) >= DATE_ADD(?, INTERVAL 1 DAY)';
+                    params.push(startDate);
+                } else if (date) {
+                    query += ' AND DATE(o.delivery_date) = DATE_ADD(?, INTERVAL 1 DAY)';
+                    params.push(date);
+                }
+            }
+
             if (route_id && route_id !== 'all') {
                 query += ' AND o.route_id = ?';
                 params.push(route_id);
-            }
-
-            // Date filtering: supports single date or range (startDate)
-            const startDate = filters.startDate;
-            if (startDate) {
-                query += ' AND (o.business_date >= ? OR DATE(o.delivery_date) >= ?)';
-                params.push(startDate, startDate);
-            } else if (date) {
-                // For user queries, match on either business_date OR delivery_date
-                // so orders never disappear due to 2AM cutoff timing differences
-                if (user_id) {
-                    query += ' AND (o.business_date = ? OR DATE(o.delivery_date) = ?)';
-                    params.push(date, date);
-                } else {
-                    // Admin: strict business_date filter
-                    query += ' AND o.business_date = ?';
-                    params.push(date);
-                }
             }
 
             if (user_id) {
@@ -199,22 +213,6 @@ class Order {
             const [rows] = await db.execute(query, params);
             return rows;
         } catch (error) {
-            console.log('[OrderModel] Falling back to legacy query due to:', error.message);
-            let fallbackQuery = `
-                SELECT o.*, u.full_name as username, u.contact, r.name as route_name
-                FROM orders o
-                JOIN users u ON o.user_id = u.id
-                LEFT JOIN routes r ON u.route_id = r.id
-                WHERE DATE(o.delivery_date) = DATE_ADD(?, INTERVAL 1 DAY)
-            `;
-            const fallbackParams = [date];
-            
-            if (route_id && route_id !== 'all') {
-                fallbackQuery += ' AND u.route_id = ?';
-                fallbackParams.push(route_id);
-            }
-            
-            const [rows] = await db.execute(fallbackQuery, fallbackParams);
             return rows;
         }
     }
@@ -241,14 +239,25 @@ class Order {
     }
 
     static async getOrderItems(orderId) {
-        const [rows] = await db.execute(`
-            SELECT oi.*, p.name as product_name, pv.variant_name
-            FROM order_items oi
-            LEFT JOIN products p ON oi.product_id = p.id
-            LEFT JOIN product_variants pv ON oi.variant_id = pv.id
-            WHERE oi.order_id = ?
-        `, [orderId]);
-        return rows;
+        try {
+            const [rows] = await db.execute(`
+                SELECT oi.*, p.name as product_name, pv.variant_name
+                FROM order_items oi
+                LEFT JOIN products p ON oi.product_id = p.id
+                LEFT JOIN product_variants pv ON oi.variant_id = pv.id
+                WHERE oi.order_id = ?
+            `, [orderId]);
+            return rows;
+        } catch (error) {
+            // Fallback for missing variant_id column
+            const [rows] = await db.execute(`
+                SELECT oi.*, p.name as product_name, NULL as variant_name
+                FROM order_items oi
+                LEFT JOIN products p ON oi.product_id = p.id
+                WHERE oi.order_id = ?
+            `, [orderId]);
+            return rows;
+        }
     }
 
     // New method for admin to update final price
