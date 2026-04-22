@@ -208,20 +208,22 @@ exports.exportRouteXLSX = async (req, res) => {
                     items: []
                 });
             }
-            // Parse unit and quantity
-            let unit = row.variant_name || (parseFloat(row.qty_raw) >= 1 ? '1 kg' : 'gm');
-            let quantity = row.qty_raw;
+            // Parse unit and quantity into a single breakdown string
+            let breakdown = row.variant_name || (parseFloat(row.qty_raw) >= 1 ? '1 kg' : 'gm');
+            let qty_val = row.qty_raw;
 
-            // If we have precise packet info, use it
             if (row.packet_count) {
-                unit = `${row.packet_size} ${row.unit_type}`;
-                quantity = row.packet_count;
+                breakdown = `Unit: ${row.packet_size} ${row.unit_type} | Qty: ${row.packet_count} | Total: ${formatQty(row.qty_raw)}`;
+                qty_val = row.packet_count;
+            } else {
+                // Fallback for legacy items
+                breakdown = `${row.variant_name || 'Standard'} (Total: ${formatQty(row.qty_raw)})`;
             }
 
             ordersMap.get(row.OrderID).items.push({
                 Product:  row.Product,
-                Unit:     unit,
-                Quantity: quantity
+                Unit:     breakdown,
+                Quantity: qty_val
             });
         }
 
@@ -243,7 +245,7 @@ exports.exportRouteXLSX = async (req, res) => {
 
         // Header row styling
         const headerRow = worksheet.addRow([
-            'Order ID', 'Customer Name', 'Route', 'Address', 'Delivery Date', 'Product', 'Unit', 'Qty'
+            'Order ID', 'Customer Name', 'Route', 'Address', 'Delivery Date', 'Product', 'Quantity Details', 'Packets'
         ]);
         headerRow.height = 22;
         headerRow.eachCell(cell => {
@@ -395,7 +397,7 @@ exports.exportMonthlyXLSX = async (req, res) => {
 
         // Header Style
         const headerRow = worksheet.addRow([
-            'User ID', 'Customer Name', 'Route', 'Order ID', 'Date', 'Product', 'Unit', 'Qty'
+            'User ID', 'Customer Name', 'Route', 'Order ID', 'Date', 'Product', 'Quantity Details', 'Packets'
         ]);
         headerRow.height = 25;
         headerRow.eachCell(cell => {
@@ -427,13 +429,15 @@ exports.exportMonthlyXLSX = async (req, res) => {
             }
             lastUserId = row.UserID;
 
-            // Parse unit and quantity
-            let unit = row.variant_name || (parseFloat(row.qty_raw) >= 1 ? '1 kg' : 'gm');
-            let quantity = row.qty_raw;
+            // Parse unit and quantity breakdown
+            let breakdown = row.variant_name || (parseFloat(row.qty_raw) >= 1 ? '1 kg' : 'gm');
+            let qty_val = row.qty_raw;
 
             if (row.packet_count) {
-                unit = `${row.packet_size} ${row.unit_type}`;
-                quantity = row.packet_count;
+                breakdown = `Unit: ${row.packet_size} ${row.unit_type} | Qty: ${row.packet_count} | Total: ${formatQty(row.qty_raw)}`;
+                qty_val = row.packet_count;
+            } else {
+                breakdown = `${row.variant_name || 'Standard'} (Total: ${formatQty(row.qty_raw)})`;
             }
 
             const excelRow = worksheet.addRow([
@@ -443,8 +447,8 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 isFirstInOrder ? row.OrderID : '',
                 isFirstInOrder ? row.DeliveryDate : '',
                 row.Product,
-                unit,
-                quantity
+                breakdown,
+                qty_val
             ]);
             excelRow.height = 20;
 
