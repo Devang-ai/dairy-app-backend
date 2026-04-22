@@ -214,11 +214,25 @@ exports.exportRouteXLSX = async (req, res) => {
             let totalStr = formatQty(row.qty_raw);
  
             // SMART RECOVERY for Quantity (Packets)
-            if (row.packet_count && row.packet_count > 0) {
-                qtyVal = Math.round(row.packet_count);
-            } else if (hasPacketFields && parseFloat(row.packet_size) > 0) {
-                qtyVal = Math.round(parseFloat(row.qty_raw) / parseFloat(row.packet_size));
+            let qtyValCalculated = row.qty_raw;
+            const sizeNum = parseFloat(row.packet_size) || 0;
+            const totalNum = parseFloat(row.qty_raw) || 0;
+            const countNum = parseInt(row.packet_count || 0);
+
+            // If we have packet info, verify if size * count = total
+            if (sizeNum > 0) {
+                // If existing count is wrong or missing, derive from total
+                if (countNum <= 0 || Math.abs(countNum * sizeNum - totalNum) > 0.001) {
+                    qtyValCalculated = Math.round(totalNum / sizeNum);
+                } else {
+                    qtyValCalculated = countNum;
+                }
+            } else {
+                qtyValCalculated = row.qty_raw; // Fallback
             }
+
+            // Force whole number for Packet Qty
+            qtyVal = Math.round(qtyValCalculated);
 
             if (row.packet_count || (hasPacketFields && parseFloat(row.packet_size) > 0)) {
                 unitStr = `${row.packet_size} ${row.unit_type}`;
@@ -318,7 +332,7 @@ exports.exportRouteXLSX = async (req, res) => {
             }
 
             // Apply medium borders for the entire order block
-            exports.applyGroupBorders(worksheet, startRow, endRow, 8, 'FF1A5276');
+            exports.applyGroupBorders(worksheet, startRow, endRow, 9, 'FF1A5276');
         }
 
         // Auto-fit columns
@@ -431,7 +445,7 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 // Apply borders to the previous order block if exists
                 if (currentOrderId !== null) {
                     const endRow = worksheet.rowCount;
-                    exports.applyGroupBorders(worksheet, orderStartRow, endRow, 8, 'FF2D5E55');
+                    exports.applyGroupBorders(worksheet, orderStartRow, endRow, 9, 'FF2D5E55');
                 }
                 currentOrderId = row.OrderID;
                 orderStartRow = worksheet.rowCount + 1;
@@ -444,11 +458,25 @@ exports.exportMonthlyXLSX = async (req, res) => {
             let totalStr = formatQty(row.qty_raw);
  
             // SMART RECOVERY for Quantity (Packets)
-            if (row.packet_count && row.packet_count > 0) {
-                qtyVal = Math.round(row.packet_count);
-            } else if (hasPacketFields && parseFloat(row.packet_size) > 0) {
-                qtyVal = Math.round(parseFloat(row.qty_raw) / parseFloat(row.packet_size));
+            let qtyValCalculated = row.qty_raw;
+            const sizeNum = parseFloat(row.packet_size) || 0;
+            const totalNum = parseFloat(row.qty_raw) || 0;
+            const countNum = parseInt(row.packet_count || 0);
+
+            // If we have packet info, verify if size * count = total
+            if (sizeNum > 0) {
+                // If existing count is wrong or missing, derive from total
+                if (countNum <= 0 || Math.abs(countNum * sizeNum - totalNum) > 0.001) {
+                    qtyValCalculated = Math.round(totalNum / sizeNum);
+                } else {
+                    qtyValCalculated = countNum;
+                }
+            } else {
+                qtyValCalculated = row.qty_raw; // Fallback
             }
+
+            // Force whole number for Packet Qty
+            qtyVal = Math.round(qtyValCalculated);
 
             if (row.packet_count || (hasPacketFields && parseFloat(row.packet_size) > 0)) {
                 unitStr = `${row.packet_size} ${row.unit_type}`;
@@ -475,7 +503,7 @@ exports.exportMonthlyXLSX = async (req, res) => {
             // Handle last row merge/border
             if (index === rows.length - 1) {
                 const endRow = worksheet.rowCount;
-                exports.applyGroupBorders(worksheet, orderStartRow, endRow, 8, 'FF2D5E55');
+                exports.applyGroupBorders(worksheet, orderStartRow, endRow, 9, 'FF2D5E55');
             }
         });
 
