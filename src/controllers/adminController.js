@@ -113,10 +113,19 @@ exports.exportRouteXLSX = async (req, res) => {
         if (!date) {
             return res.status(400).json({ message: 'Date is required' });
         }
+        let rows = [];
+        let hasVariantId = true;
+        let hasPacketFields = true;
 
         try {
+            // Detect if variant_id exists
+            try {
+                await db.execute('SELECT variant_id FROM order_items LIMIT 1');
+            } catch (err) {
+                hasVariantId = false;
+            }
+
             // Detect if packet fields exist
-            let hasPacketFields = true;
             try {
                 await db.execute('SELECT packet_size FROM order_items LIMIT 1');
             } catch (err) {
@@ -200,11 +209,19 @@ exports.exportRouteXLSX = async (req, res) => {
                 });
             }
             // Parse unit and quantity
-            const qty = parseFloat(row.qty_raw) || 0;
+            let unit = row.variant_name || (parseFloat(row.qty_raw) >= 1 ? '1 kg' : 'gm');
+            let quantity = row.qty_raw;
+
+            // If we have precise packet info, use it
+            if (row.packet_count) {
+                unit = `${row.packet_size} ${row.unit_type}`;
+                quantity = row.packet_count;
+            }
+
             ordersMap.get(row.OrderID).items.push({
                 Product:  row.Product,
-                Unit:     row.variant_name || (parseFloat(row.qty_raw) >= 1 ? '1 kg' : 'gm'),
-                Quantity: row.qty_raw
+                Unit:     unit,
+                Quantity: quantity
             });
         }
 
@@ -330,12 +347,12 @@ exports.exportMonthlyXLSX = async (req, res) => {
         const lastDay   = new Date(parseInt(year), parseInt(month), 0).getDate();
         const endDate   = `${year}-${pad}-${lastDay}`;
 
-        // Detect if variant_id exists
-        let hasVariantId = true;
+        // Detect if packet fields exist
+        let hasPacketFields = true;
         try {
-            await db.execute('SELECT variant_id FROM order_items LIMIT 1');
+            await db.execute('SELECT packet_size FROM order_items LIMIT 1');
         } catch (err) {
-            hasVariantId = false;
+            hasPacketFields = false;
         }
 
         // Fetch all order items for the month grouped by customer and order
@@ -349,6 +366,7 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 DATE_FORMAT(o.delivery_date, '%d-%b-%Y') AS DeliveryDate,
                 p.name AS Product,
                 ${hasVariantId ? 'pv.variant_name' : 'NULL as variant_name'},
+                ${hasPacketFields ? 'oi.packet_count, oi.packet_size, oi.unit_type,' : 'NULL as packet_count, NULL as packet_size, NULL as unit_type,'}
                 oi.quantity AS qty_raw
             FROM users u
             JOIN orders o ON o.user_id = u.id
@@ -409,7 +427,15 @@ exports.exportMonthlyXLSX = async (req, res) => {
             }
             lastUserId = row.UserID;
 
-            const qty = parseFloat(row.qty_raw) || 0;
+            // Parse unit and quantity
+            let unit = row.variant_name || (parseFloat(row.qty_raw) >= 1 ? '1 kg' : 'gm');
+            let quantity = row.qty_raw;
+
+            if (row.packet_count) {
+                unit = `${row.packet_size} ${row.unit_type}`;
+                quantity = row.packet_count;
+            }
+
             const excelRow = worksheet.addRow([
                 isFirstUser ? row.UserID : '',
                 isFirstUser ? row.CustomerName : '',
@@ -417,8 +443,8 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 isFirstInOrder ? row.OrderID : '',
                 isFirstInOrder ? row.DeliveryDate : '',
                 row.Product,
-                row.variant_name || (qty >= 1 ? '1 kg' : 'gm'),
-                qty
+                unit,
+                quantity
             ]);
             excelRow.height = 20;
 
