@@ -212,9 +212,8 @@ exports.exportRouteXLSX = async (req, res) => {
             let unitStr = row.variant_name || (parseFloat(row.qty_raw) >= 1 ? '1 kg' : 'gm');
             let qtyVal = row.qty_raw;
             let totalStr = formatQty(row.qty_raw);
-
+ 
             // SMART RECOVERY for Quantity (Packets)
-            let qtyVal = row.qty_raw; 
             if (row.packet_count && row.packet_count > 0) {
                 qtyVal = Math.round(row.packet_count);
             } else if (hasPacketFields && parseFloat(row.packet_size) > 0) {
@@ -443,9 +442,8 @@ exports.exportMonthlyXLSX = async (req, res) => {
             let unitStr = row.variant_name || (parseFloat(row.qty_raw) >= 1 ? '1 kg' : 'gm');
             let qtyVal = row.qty_raw;
             let totalStr = formatQty(row.qty_raw);
-
+ 
             // SMART RECOVERY for Quantity (Packets)
-            let qtyVal = row.qty_raw; 
             if (row.packet_count && row.packet_count > 0) {
                 qtyVal = Math.round(row.packet_count);
             } else if (hasPacketFields && parseFloat(row.packet_size) > 0) {
