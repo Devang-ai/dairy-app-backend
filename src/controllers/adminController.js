@@ -215,7 +215,8 @@ exports.exportRouteXLSX = async (req, res) => {
 
             if (row.packet_count) {
                 unitStr = `${row.packet_size} ${row.unit_type}`;
-                qtyVal = row.packet_count;
+                // Force whole number for packets to avoid .000 in Excel
+                qtyVal = Math.round(row.packet_count);
                 totalStr = formatQty(row.qty_raw);
             }
 
@@ -277,6 +278,7 @@ exports.exportRouteXLSX = async (req, res) => {
                     item.Product,
                     item.Unit,
                     item.Quantity,
+                    item.Total
                 ]);
                 row.height = 20;
                 row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
@@ -438,7 +440,8 @@ exports.exportMonthlyXLSX = async (req, res) => {
 
             if (row.packet_count) {
                 unitStr = `${row.packet_size} ${row.unit_type}`;
-                qtyVal = row.packet_count;
+                // Force whole number for packets to avoid .000 in Excel
+                qtyVal = Math.round(row.packet_count);
                 totalStr = formatQty(row.qty_raw);
             }
 
