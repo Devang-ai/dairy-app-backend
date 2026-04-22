@@ -52,7 +52,7 @@ exports.exportRouteWise = async (req, res) => {
                     oi.quantity AS qty_raw
                 FROM orders o
                 JOIN users u ON o.user_id = u.id
-                LEFT JOIN routes r ON o.route_id = r.id
+                LEFT JOIN routes r ON u.route_id = r.id
                 JOIN order_items oi ON o.id = oi.order_id
                 JOIN products p ON oi.product_id = p.id
                 WHERE DATE(o.delivery_date) = DATE_ADD(?, INTERVAL 1 DAY)
@@ -208,35 +208,29 @@ exports.exportRouteXLSX = async (req, res) => {
                     items: []
                 });
             }
-            // Parse unit, quantity, and total into separate fields
-            let unitStr = row.variant_name || (parseFloat(row.qty_raw) >= 1 ? '1 kg' : 'gm');
-            let qtyVal = row.qty_raw;
-            let totalStr = formatQty(row.qty_raw);
- 
-            // WHOLESALE PRIORITY: Trust the recorded packet count first
-            let packetCount = parseInt(String(row.packet_count || 0));
+            // WHOLESALE RESILIENT RECOVERY
+            let finalQty = parseInt(String(row.packet_count || 0));
             const sizeNum = parseFloat(String(row.packet_size || 0));
-            const totalNum = parseFloat(String(row.qty_raw || 0));
+            const totalWeight = parseFloat(String(row.qty_raw || 0));
             
-            let finalQtyVal = packetCount;
-            // Only fallback to calculation for legacy data (count is 0/missing)
-            if (packetCount <= 0) {
-                finalQtyVal = sizeNum > 0 ? Math.round(totalNum / sizeNum) : totalNum;
+            // Verify if count is mathematically plausible
+            const expectedWeight = finalQty * sizeNum;
+            const tolerance = sizeNum * 0.5;
+
+            if (finalQty <= 0 || (sizeNum > 0 && Math.abs(expectedWeight - totalWeight) > tolerance)) {
+                finalQty = sizeNum > 0 ? Math.round(totalWeight / sizeNum) : 1;
             }
 
-            // Force whole number for Packet Qty
-            qtyVal = Math.round(finalQtyVal);
-
-            if (row.packet_count || (hasPacketFields && parseFloat(row.packet_size) > 0)) {
-                unitStr = `${row.packet_size} ${row.unit_type}`;
-                totalStr = formatQty(row.qty_raw);
+            let unitStr = row.variant_name || (totalWeight >= 1 ? '1 kg' : 'gm');
+            if (row.packet_count || (hasPacketFields && sizeNum > 0)) {
+                unitStr = `${row.packet_size} ${row.unit_type || 'kg'}`;
             }
 
             ordersMap.get(row.OrderID).items.push({
                 Product:  row.Product,
                 Unit:     unitStr,
-                Quantity: qtyVal,
-                Total:    totalStr
+                Quantity: finalQty,
+                Total:    formatQty(totalWeight)
             });
         }
 
@@ -442,14 +436,12 @@ exports.exportMonthlyXLSX = async (req, res) => {
         };
 
         let currentOrderId = null;
-        let lastUserId = null;
         let orderStartRow = 0;
 
         rows.forEach((row, index) => {
             const isFirstInOrder = row.OrderID !== currentOrderId;
             
             if (isFirstInOrder) {
-                // Apply borders to the previous order block if exists
                 if (currentOrderId !== null) {
                     const endRow = worksheet.rowCount;
                     exports.applyGroupBorders(worksheet, orderStartRow, endRow, 9, 'FF2D5E55');
@@ -457,28 +449,23 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 currentOrderId = row.OrderID;
                 orderStartRow = worksheet.rowCount + 1;
             }
-            lastUserId = row.UserID;
 
-            // WHOLESALE PRIORITY: Trust the recorded packet count first
-            let packetCount = parseInt(String(row.packet_count || 0));
+            // WHOLESALE RESILIENT RECOVERY
+            let finalQty = parseInt(String(row.packet_count || 0));
             const sizeNum = parseFloat(String(row.packet_size || 0));
-            const totalNum = parseFloat(String(row.qty_raw || 0));
+            const totalWeight = parseFloat(String(row.qty_raw || 0));
             
-            let finalQtyVal = packetCount;
-            // Only fallback to calculation for legacy data (count is 0/missing)
-            if (packetCount <= 0) {
-                finalQtyVal = sizeNum > 0 ? Math.round(totalNum / sizeNum) : totalNum;
+            const expectedWeight = finalQty * sizeNum;
+            const tolerance = sizeNum * 0.5;
+
+            if (finalQty <= 0 || (sizeNum > 0 && Math.abs(expectedWeight - totalWeight) > tolerance)) {
+                finalQty = sizeNum > 0 ? Math.round(totalWeight / sizeNum) : 1;
             }
 
-            // Force whole number for Packet Qty
-            const qtyVal = Math.round(finalQtyVal);
-
-            let unitStr = row.variant_name || (parseFloat(row.qty_raw) >= 1 ? '1 kg' : 'gm');
-            if (row.packet_count || (hasPacketFields && parseFloat(row.packet_size) > 0)) {
-                unitStr = `${row.packet_size} ${row.unit_type}`;
+            let unitStr = row.variant_name || (totalWeight >= 1 ? '1 kg' : 'gm');
+            if (row.packet_count || (hasPacketFields && sizeNum > 0)) {
+                unitStr = `${row.packet_size} ${row.unit_type || 'kg'}`;
             }
-
-            const totalStr = formatQty(row.qty_raw);
 
             const excelRow = worksheet.addRow([
                 row.UserID,
@@ -488,8 +475,8 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 row.DeliveryDate,
                 row.Product,
                 unitStr,
-                qtyVal,
-                totalStr
+                finalQty,
+                formatQty(totalWeight)
             ]);
             excelRow.height = 20;
 
@@ -503,7 +490,6 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 };
             });
 
-            // Handle last row merge/border
             if (index === rows.length - 1) {
                 const endRow = worksheet.rowCount;
                 exports.applyGroupBorders(worksheet, orderStartRow, endRow, 9, 'FF2D5E55');
