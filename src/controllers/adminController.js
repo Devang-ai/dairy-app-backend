@@ -213,10 +213,16 @@ exports.exportRouteXLSX = async (req, res) => {
             let qtyVal = row.qty_raw;
             let totalStr = formatQty(row.qty_raw);
 
-            if (row.packet_count) {
-                unitStr = `${row.packet_size} ${row.unit_type}`;
-                // Force whole number for packets to avoid .000 in Excel
+            // SMART RECOVERY for Quantity (Packets)
+            let qtyVal = row.qty_raw; 
+            if (row.packet_count && row.packet_count > 0) {
                 qtyVal = Math.round(row.packet_count);
+            } else if (hasPacketFields && parseFloat(row.packet_size) > 0) {
+                qtyVal = Math.round(parseFloat(row.qty_raw) / parseFloat(row.packet_size));
+            }
+
+            if (row.packet_count || (hasPacketFields && parseFloat(row.packet_size) > 0)) {
+                unitStr = `${row.packet_size} ${row.unit_type}`;
                 totalStr = formatQty(row.qty_raw);
             }
 
@@ -438,10 +444,16 @@ exports.exportMonthlyXLSX = async (req, res) => {
             let qtyVal = row.qty_raw;
             let totalStr = formatQty(row.qty_raw);
 
-            if (row.packet_count) {
-                unitStr = `${row.packet_size} ${row.unit_type}`;
-                // Force whole number for packets to avoid .000 in Excel
+            // SMART RECOVERY for Quantity (Packets)
+            let qtyVal = row.qty_raw; 
+            if (row.packet_count && row.packet_count > 0) {
                 qtyVal = Math.round(row.packet_count);
+            } else if (hasPacketFields && parseFloat(row.packet_size) > 0) {
+                qtyVal = Math.round(parseFloat(row.qty_raw) / parseFloat(row.packet_size));
+            }
+
+            if (row.packet_count || (hasPacketFields && parseFloat(row.packet_size) > 0)) {
+                unitStr = `${row.packet_size} ${row.unit_type}`;
                 totalStr = formatQty(row.qty_raw);
             }
 
