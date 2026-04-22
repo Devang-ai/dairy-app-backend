@@ -275,11 +275,11 @@ exports.exportRouteXLSX = async (req, res) => {
             // Add all item rows
             order.items.forEach((item, idx) => {
                 const row = worksheet.addRow([
-                    idx === 0 ? order.OrderID      : '',
-                    idx === 0 ? order.CustomerName : '',
-                    idx === 0 ? order.Route        : '',
-                    idx === 0 ? order.Address      : '',
-                    idx === 0 ? order.DeliveryDate : '',
+                    order.OrderID,
+                    order.CustomerName,
+                    order.Route,
+                    order.Address,
+                    order.DeliveryDate,
                     item.Product,
                     item.Unit,
                     item.Quantity,
@@ -456,11 +456,11 @@ exports.exportMonthlyXLSX = async (req, res) => {
             }
 
             const excelRow = worksheet.addRow([
-                isFirstUser ? row.UserID : '',
-                isFirstUser ? row.CustomerName : '',
-                isFirstUser ? row.Route || 'N/A' : '',
-                isFirstInOrder ? row.OrderID : '',
-                isFirstInOrder ? row.DeliveryDate : '',
+                row.UserID,
+                row.CustomerName,
+                row.Route || 'N/A',
+                row.OrderID,
+                row.DeliveryDate,
                 row.Product,
                 unitStr,
                 qtyVal,
