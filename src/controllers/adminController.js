@@ -52,7 +52,7 @@ exports.exportRouteWise = async (req, res) => {
                     oi.quantity AS qty_raw
                 FROM orders o
                 JOIN users u ON o.user_id = u.id
-                LEFT JOIN routes r ON u.route_id = r.id
+                LEFT JOIN routes r ON o.route_id = r.id
                 JOIN order_items oi ON o.id = oi.order_id
                 JOIN products p ON oi.product_id = p.id
                 WHERE DATE(o.delivery_date) = DATE_ADD(?, INTERVAL 1 DAY)
@@ -213,26 +213,19 @@ exports.exportRouteXLSX = async (req, res) => {
             let qtyVal = row.qty_raw;
             let totalStr = formatQty(row.qty_raw);
  
-            // SMART RECOVERY for Quantity (Packets)
-            let qtyValCalculated = row.qty_raw;
-            const sizeNum = parseFloat(row.packet_size) || 0;
-            const totalNum = parseFloat(row.qty_raw) || 0;
-            const countNum = parseInt(row.packet_count || 0);
-
-            // If we have packet info, verify if size * count = total
-            if (sizeNum > 0) {
-                // If existing count is wrong or missing, derive from total
-                if (countNum <= 0 || Math.abs(countNum * sizeNum - totalNum) > 0.001) {
-                    qtyValCalculated = Math.round(totalNum / sizeNum);
-                } else {
-                    qtyValCalculated = countNum;
-                }
-            } else {
-                qtyValCalculated = row.qty_raw; // Fallback
+            // WHOLESALE PRIORITY: Trust the recorded packet count first
+            let packetCount = parseInt(String(row.packet_count || 0));
+            const sizeNum = parseFloat(String(row.packet_size || 0));
+            const totalNum = parseFloat(String(row.qty_raw || 0));
+            
+            let finalQtyVal = packetCount;
+            // Only fallback to calculation for legacy data (count is 0/missing)
+            if (packetCount <= 0) {
+                finalQtyVal = sizeNum > 0 ? Math.round(totalNum / sizeNum) : totalNum;
             }
 
             // Force whole number for Packet Qty
-            qtyVal = Math.round(qtyValCalculated);
+            qtyVal = Math.round(finalQtyVal);
 
             if (row.packet_count || (hasPacketFields && parseFloat(row.packet_size) > 0)) {
                 unitStr = `${row.packet_size} ${row.unit_type}`;
@@ -379,6 +372,14 @@ exports.exportMonthlyXLSX = async (req, res) => {
             hasPacketFields = false;
         }
 
+        // Detect if variant_id exists
+        let hasVariantId = true;
+        try {
+            await db.execute('SELECT variant_id FROM order_items LIMIT 1');
+        } catch (err) {
+            hasVariantId = false;
+        }
+
         // Fetch all order items for the month grouped by customer and order
         const [rows] = await db.execute(`
             SELECT 
@@ -433,13 +434,19 @@ exports.exportMonthlyXLSX = async (req, res) => {
             };
         });
 
+        const formatQty = (qty) => {
+            const n = parseFloat(qty) || 0;
+            return n >= 1
+                ? parseFloat(n.toFixed(3)) + ' kg'
+                : Math.round(n * 1000) + ' gm';
+        };
+
         let currentOrderId = null;
         let lastUserId = null;
         let orderStartRow = 0;
 
         rows.forEach((row, index) => {
             const isFirstInOrder = row.OrderID !== currentOrderId;
-            const isFirstUser = row.UserID !== lastUserId;
             
             if (isFirstInOrder) {
                 // Apply borders to the previous order block if exists
@@ -452,36 +459,26 @@ exports.exportMonthlyXLSX = async (req, res) => {
             }
             lastUserId = row.UserID;
 
-            // Parse unit, quantity, and total
-            let unitStr = row.variant_name || (parseFloat(row.qty_raw) >= 1 ? '1 kg' : 'gm');
-            let qtyVal = row.qty_raw;
-            let totalStr = formatQty(row.qty_raw);
- 
-            // SMART RECOVERY for Quantity (Packets)
-            let qtyValCalculated = row.qty_raw;
-            const sizeNum = parseFloat(row.packet_size) || 0;
-            const totalNum = parseFloat(row.qty_raw) || 0;
-            const countNum = parseInt(row.packet_count || 0);
-
-            // If we have packet info, verify if size * count = total
-            if (sizeNum > 0) {
-                // If existing count is wrong or missing, derive from total
-                if (countNum <= 0 || Math.abs(countNum * sizeNum - totalNum) > 0.001) {
-                    qtyValCalculated = Math.round(totalNum / sizeNum);
-                } else {
-                    qtyValCalculated = countNum;
-                }
-            } else {
-                qtyValCalculated = row.qty_raw; // Fallback
+            // WHOLESALE PRIORITY: Trust the recorded packet count first
+            let packetCount = parseInt(String(row.packet_count || 0));
+            const sizeNum = parseFloat(String(row.packet_size || 0));
+            const totalNum = parseFloat(String(row.qty_raw || 0));
+            
+            let finalQtyVal = packetCount;
+            // Only fallback to calculation for legacy data (count is 0/missing)
+            if (packetCount <= 0) {
+                finalQtyVal = sizeNum > 0 ? Math.round(totalNum / sizeNum) : totalNum;
             }
 
             // Force whole number for Packet Qty
-            qtyVal = Math.round(qtyValCalculated);
+            const qtyVal = Math.round(finalQtyVal);
 
+            let unitStr = row.variant_name || (parseFloat(row.qty_raw) >= 1 ? '1 kg' : 'gm');
             if (row.packet_count || (hasPacketFields && parseFloat(row.packet_size) > 0)) {
                 unitStr = `${row.packet_size} ${row.unit_type}`;
-                totalStr = formatQty(row.qty_raw);
             }
+
+            const totalStr = formatQty(row.qty_raw);
 
             const excelRow = worksheet.addRow([
                 row.UserID,
@@ -498,6 +495,12 @@ exports.exportMonthlyXLSX = async (req, res) => {
 
             excelRow.eachCell({ includeEmpty: true }, (cell) => {
                 cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+                cell.border = {
+                    top: { style: 'thin' },
+                    bottom: { style: 'thin' },
+                    left: { style: 'thin' },
+                    right: { style: 'thin' }
+                };
             });
 
             // Handle last row merge/border
@@ -797,14 +800,15 @@ exports.resetUserPassword = async (req, res) => {
         const bcrypt = require('bcryptjs');
         const { id } = req.params;
         const { newPassword } = req.body;
-
-        if (!newPassword || newPassword.length < 4) {
-            return res.status(400).json({ message: 'Password must be at least 4 characters long' });
+        
+        if (!newPassword) {
+            return res.status(400).json({ message: 'New password is required' });
         }
-
-        const hashedPassword = await bcrypt.hash(newPassword, 10);
-        const updated = await User.updatePassword(id, hashedPassword);
-
+        
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
+        
+        const updated = await User.updateUser(id, { password: hashedPassword });
         if (updated) {
             res.json({ success: true, message: 'Password reset successfully' });
         } else {
