@@ -52,7 +52,7 @@ exports.exportRouteWise = async (req, res) => {
                     oi.quantity AS qty_raw
                 FROM orders o
                 JOIN users u ON o.user_id = u.id
-                LEFT JOIN routes r ON u.route_id = r.id
+                LEFT JOIN routes r ON o.route_id = r.id
                 JOIN order_items oi ON o.id = oi.order_id
                 JOIN products p ON oi.product_id = p.id
                 WHERE DATE(o.delivery_date) = DATE_ADD(?, INTERVAL 1 DAY)
@@ -208,29 +208,31 @@ exports.exportRouteXLSX = async (req, res) => {
                     items: []
                 });
             }
-            // WHOLESALE RESILIENT RECOVERY
-            let finalQty = parseInt(String(row.packet_count || 0));
-            const sizeNum = parseFloat(String(row.packet_size || 0));
-            const totalWeight = parseFloat(String(row.qty_raw || 0));
+            // WHOLESALE RESILIENT RECOVERY (Unit-Aware)
+            let sizeInKg = parseFloat(String(row.packet_size || 0)) || 0;
+            const totalInKg = parseFloat(String(row.qty_raw || 0)) || 0;
             
-            // Verify if count is mathematically plausible
-            const expectedWeight = finalQty * sizeNum;
-            const tolerance = sizeNum * 0.5;
+            // Normalize size (grams vs kg)
+            if (sizeInKg > 10) sizeInKg = sizeInKg / 1000;
 
-            if (finalQty <= 0 || (sizeNum > 0 && Math.abs(expectedWeight - totalWeight) > tolerance)) {
-                finalQty = sizeNum > 0 ? Math.round(totalWeight / sizeNum) : 1;
+            let finalQty = parseInt(String(row.packet_count || 0));
+            
+            const expectedWeight = finalQty * sizeInKg;
+            const mismatch = Math.abs(expectedWeight - totalInKg);
+            const tolerance = sizeInKg > 0 ? sizeInKg * 0.4 : 0.1;
+
+            if (finalQty <= 0 || (sizeInKg > 0 && mismatch > tolerance)) {
+                finalQty = sizeInKg > 0 ? Math.round(totalInKg / sizeInKg) : 1;
             }
 
-            let unitStr = row.variant_name || (totalWeight >= 1 ? '1 kg' : 'gm');
-            if (row.packet_count || (hasPacketFields && sizeNum > 0)) {
-                unitStr = `${row.packet_size} ${row.unit_type || 'kg'}`;
-            }
+            const sizeDisplay = sizeInKg < 1 ? `${Math.round(sizeInKg * 1000)}gm` : `${sizeInKg}kg`;
+            const unitLabel = row.packet_size ? sizeDisplay : (row.variant_name || 'Std');
 
             ordersMap.get(row.OrderID).items.push({
                 Product:  row.Product,
-                Unit:     unitStr,
+                Unit:     unitLabel,
                 Quantity: finalQty,
-                Total:    formatQty(totalWeight)
+                Total:    formatQty(totalInKg)
             });
         }
 
@@ -450,22 +452,25 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 orderStartRow = worksheet.rowCount + 1;
             }
 
-            // WHOLESALE RESILIENT RECOVERY
-            let finalQty = parseInt(String(row.packet_count || 0));
-            const sizeNum = parseFloat(String(row.packet_size || 0));
-            const totalWeight = parseFloat(String(row.qty_raw || 0));
+            // WHOLESALE RESILIENT RECOVERY (Unit-Aware)
+            let sizeInKg = parseFloat(String(row.packet_size || 0)) || 0;
+            const totalInKg = parseFloat(String(row.qty_raw || 0)) || 0;
             
-            const expectedWeight = finalQty * sizeNum;
-            const tolerance = sizeNum * 0.5;
+            // Normalize size
+            if (sizeInKg > 10) sizeInKg = sizeInKg / 1000;
 
-            if (finalQty <= 0 || (sizeNum > 0 && Math.abs(expectedWeight - totalWeight) > tolerance)) {
-                finalQty = sizeNum > 0 ? Math.round(totalWeight / sizeNum) : 1;
+            let finalQty = parseInt(String(row.packet_count || 0));
+            
+            const expectedWeight = finalQty * sizeInKg;
+            const mismatch = Math.abs(expectedWeight - totalInKg);
+            const tolerance = sizeInKg > 0 ? sizeInKg * 0.4 : 0.1;
+
+            if (finalQty <= 0 || (sizeInKg > 0 && mismatch > tolerance)) {
+                finalQty = sizeInKg > 0 ? Math.round(totalInKg / sizeInKg) : 1;
             }
 
-            let unitStr = row.variant_name || (totalWeight >= 1 ? '1 kg' : 'gm');
-            if (row.packet_count || (hasPacketFields && sizeNum > 0)) {
-                unitStr = `${row.packet_size} ${row.unit_type || 'kg'}`;
-            }
+            const sizeDisplay = sizeInKg < 1 ? `${Math.round(sizeInKg * 1000)}gm` : `${sizeInKg}kg`;
+            const unitLabel = row.packet_size ? sizeDisplay : (row.variant_name || 'Std');
 
             const excelRow = worksheet.addRow([
                 row.UserID,
@@ -474,9 +479,9 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 row.OrderID,
                 row.DeliveryDate,
                 row.Product,
-                unitStr,
+                unitLabel,
                 finalQty,
-                formatQty(totalWeight)
+                formatQty(totalInKg)
             ]);
             excelRow.height = 20;
 
