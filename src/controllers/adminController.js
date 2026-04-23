@@ -195,7 +195,7 @@ exports.exportRouteXLSX = async (req, res) => {
                 : Math.round(n * 1000) + ' gm';
         };
 
-        // Group rows by OrderID
+            // Group rows by OrderID
         const ordersMap = new Map();
         for (const row of rows) {
             if (!ordersMap.has(row.OrderID)) {
@@ -212,6 +212,19 @@ exports.exportRouteXLSX = async (req, res) => {
             let sizeInKg = parseFloat(String(row.packet_size || 0)) || 0;
             const totalInKg = parseFloat(String(row.qty_raw || 0)) || 0;
             
+            // FALLBACK: If size is 0, try to extract from name
+            if (sizeInKg === 0 && row.variant_name) {
+                // Simple inline extraction for backend consistency
+                const nameCleanup = row.variant_name.toLowerCase();
+                if (nameCleanup.includes('gm')) {
+                    const match = nameCleanup.match(/(\d+)\s*gm/);
+                    if (match) sizeInKg = parseFloat(match[1]) / 1000;
+                } else if (nameCleanup.includes('kg')) {
+                    const match = nameCleanup.match(/(\d+(\.\d+)?)\s*kg/);
+                    if (match) sizeInKg = parseFloat(match[1]);
+                }
+            }
+
             // Normalize size (grams vs kg)
             if (sizeInKg > 10) sizeInKg = sizeInKg / 1000;
 
@@ -225,12 +238,13 @@ exports.exportRouteXLSX = async (req, res) => {
                 finalQty = sizeInKg > 0 ? Math.round(totalInKg / sizeInKg) : 1;
             }
 
-            const sizeDisplay = sizeInKg < 1 ? `${Math.round(sizeInKg * 1000)}gm` : `${sizeInKg}kg`;
-            const unitLabel = row.packet_size ? sizeDisplay : (row.variant_name || 'Std');
+            const sizeDisplay = sizeInKg > 0 
+                ? (sizeInKg < 1 ? `${Math.round(sizeInKg * 1000)}gm` : `${parseFloat(sizeInKg.toFixed(2))}kg`)
+                : (row.variant_name || 'Std');
 
             ordersMap.get(row.OrderID).items.push({
                 Product:  row.Product,
-                Unit:     unitLabel,
+                Unit:     sizeDisplay,
                 Quantity: finalQty,
                 Total:    formatQty(totalInKg)
             });
