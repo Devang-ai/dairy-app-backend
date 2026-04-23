@@ -6,6 +6,48 @@ const ExcelJS = require('exceljs');
 
 const MONTHS_NAME = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
+// HELPERS FOR WHOLESALE QUANTITY (Unit-Aware)
+const extractValueFromName = (name) => {
+    if (!name) return 0;
+    const nameCleanup = name.toLowerCase();
+    // Regex for: gm, g, kg, k, l, ml, litre
+    const regex = /(\d+(?:\.\d+)?)\s*(gm|g|kg|k|l|ml|litre|litres)?/g;
+    let total = 0;
+    let match;
+    let found = false;
+    while ((match = regex.exec(nameCleanup)) !== null) {
+        found = true;
+        const val = parseFloat(match[1]);
+        const unit = match[2];
+        if (unit === 'gm' || unit === 'g' || unit === 'ml') {
+            total += val / 1000;
+        } else {
+            total += val;
+        }
+    }
+    return found ? total : 0;
+};
+
+const formatWeight = (qty, name = '') => {
+    const n = parseFloat(qty) || 0;
+    const isVol = name.toLowerCase().match(/l|ml|litre/);
+    if (n >= 1) {
+        return parseFloat(n.toFixed(3)) + (isVol ? ' L' : ' kg');
+    } else {
+        return Math.round(n * 1000) + (isVol ? ' ml' : ' gm');
+    }
+};
+
+const getSmartSizeLabel = (sizeInKg, name = '') => {
+    if (sizeInKg <= 0) return name || 'Std';
+    const isVol = name.toLowerCase().match(/l|ml|litre/);
+    if (sizeInKg < 1) {
+        return Math.round(sizeInKg * 1000) + (isVol ? 'ml' : 'gm');
+    } else {
+        return parseFloat(sizeInKg.toFixed(2)) + (isVol ? 'L' : 'kg');
+    }
+};
+
 exports.exportRouteWise = async (req, res) => {
     try {
         const { route_id, date } = req.query;
@@ -53,7 +95,7 @@ exports.exportRouteWise = async (req, res) => {
                     oi.quantity AS qty_raw
                 FROM orders o
                 JOIN users u ON o.user_id = u.id
-                LEFT JOIN routes r ON o.route_id = r.id
+                LEFT JOIN routes r o.route_id = r.id
                 JOIN order_items oi ON o.id = oi.order_id
                 JOIN products p ON oi.product_id = p.id
                 WHERE DATE(o.delivery_date) = DATE_ADD(?, INTERVAL 1 DAY)
@@ -66,17 +108,6 @@ exports.exportRouteWise = async (req, res) => {
             query += ' ORDER BY r.name, u.full_name, o.id';
             [rows] = await db.execute(query, params);
         }
-
-        // Format quantity: remove trailing zeros, then add unit
-        const formatQty = (qty) => {
-            const n = parseFloat(qty) || 0;
-            if (n >= 1) {
-                // Remove trailing zeros: 1.000 → 1, 2.500 → 2.5
-                return parseFloat(n.toFixed(3)) + ' kg';
-            } else {
-                return Math.round(n * 1000) + ' gm';
-            }
-        };
 
         // Build grouped CSV rows — order details only on first item
         const csvRows = [];
@@ -91,7 +122,7 @@ exports.exportRouteWise = async (req, res) => {
                 Address:      isFirstItem ? row.Address      : '',
                 DeliveryDate: isFirstItem ? row.DeliveryDate : '',
                 Product:  row.Product,
-                Quantity: formatQty(row.qty_raw),
+                Quantity: formatWeight(row.qty_raw, row.Product || ''),
             });
         }
 
@@ -188,15 +219,7 @@ exports.exportRouteXLSX = async (req, res) => {
             [rows] = await db.execute(query, params);
         }
 
-        // Format quantity helper
-        const formatQty = (qty) => {
-            const n = parseFloat(qty) || 0;
-            return n >= 1
-                ? parseFloat(n.toFixed(3)) + ' kg'
-                : Math.round(n * 1000) + ' gm';
-        };
-
-            // Group rows by OrderID
+        // Group rows by OrderID
         const ordersMap = new Map();
         for (const row of rows) {
             if (!ordersMap.has(row.OrderID)) {
@@ -212,21 +235,14 @@ exports.exportRouteXLSX = async (req, res) => {
             // WHOLESALE RESILIENT RECOVERY (Unit-Aware)
             let sizeInKg = parseFloat(String(row.packet_size || 0)) || 0;
             const totalInKg = parseFloat(String(row.qty_raw || 0)) || 0;
+            const vName = row.variant_name || row.Product || '';
             
-            // FALLBACK: If size is 0, try to extract from name
-            if (sizeInKg === 0 && row.variant_name) {
-                // Simple inline extraction for backend consistency
-                const nameCleanup = row.variant_name.toLowerCase();
-                if (nameCleanup.includes('gm')) {
-                    const match = nameCleanup.match(/(\d+)\s*gm/);
-                    if (match) sizeInKg = parseFloat(match[1]) / 1000;
-                } else if (nameCleanup.includes('kg')) {
-                    const match = nameCleanup.match(/(\d+(\.\d+)?)\s*kg/);
-                    if (match) sizeInKg = parseFloat(match[1]);
-                }
+            // FALLBACK Logic
+            if (sizeInKg === 0) {
+                sizeInKg = extractValueFromName(vName);
             }
 
-            // Normalize size (grams vs kg)
+            // Normalize size
             if (sizeInKg > 10) sizeInKg = sizeInKg / 1000;
 
             let finalQty = parseInt(String(row.packet_count || 0));
@@ -239,15 +255,13 @@ exports.exportRouteXLSX = async (req, res) => {
                 finalQty = sizeInKg > 0 ? Math.round(totalInKg / sizeInKg) : 1;
             }
 
-            const sizeDisplay = sizeInKg > 0 
-                ? (sizeInKg < 1 ? `${Math.round(sizeInKg * 1000)}gm` : `${parseFloat(sizeInKg.toFixed(2))}kg`)
-                : (row.variant_name || 'Std');
+            const sizeLabel = getSmartSizeLabel(sizeInKg, vName);
 
             ordersMap.get(row.OrderID).items.push({
                 Product:  row.Product,
-                Unit:     sizeDisplay,
+                Unit:     sizeLabel,
                 Quantity: finalQty,
-                Total:    formatQty(totalInKg)
+                Total:    formatWeight(totalInKg, vName)
             });
         }
 
@@ -270,7 +284,7 @@ exports.exportRouteXLSX = async (req, res) => {
 
         // Header row styling
         const headerRow = worksheet.addRow([
-            'Order ID', 'Customer Name', 'Route', 'Address', 'Delivery Date', 'Product', 'Unit Size', 'Packet Qty', 'Total Weight'
+            'Order ID', 'Customer Name', 'Route', 'Address', 'Delivery Date', 'Product', 'Unit Size', 'Packet Qty', 'Total Wgt/Vol'
         ]);
         headerRow.height = 22;
         headerRow.eachCell(cell => {
@@ -432,7 +446,7 @@ exports.exportMonthlyXLSX = async (req, res) => {
 
         // Header Style
         const headerRow = worksheet.addRow([
-            'User ID', 'Customer Name', 'Route', 'Order ID', 'Date', 'Product', 'Unit Size', 'Packet Qty', 'Total Weight'
+            'User ID', 'Customer Name', 'Route', 'Order ID', 'Date', 'Product', 'Unit Size', 'Packet Qty', 'Total Wgt/Vol'
         ]);
         headerRow.height = 25;
         headerRow.eachCell(cell => {
@@ -444,13 +458,6 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 left:   { style: 'thin' }, right:  { style: 'thin' }
             };
         });
-
-        const formatQty = (qty) => {
-            const n = parseFloat(qty) || 0;
-            return n >= 1
-                ? parseFloat(n.toFixed(3)) + ' kg'
-                : Math.round(n * 1000) + ' gm';
-        };
 
         let currentOrderId = null;
         let orderStartRow = 0;
@@ -470,7 +477,13 @@ exports.exportMonthlyXLSX = async (req, res) => {
             // WHOLESALE RESILIENT RECOVERY (Unit-Aware)
             let sizeInKg = parseFloat(String(row.packet_size || 0)) || 0;
             const totalInKg = parseFloat(String(row.qty_raw || 0)) || 0;
+            const vName = row.variant_name || row.Product || '';
             
+            // FALLBACK
+            if (sizeInKg === 0) {
+                sizeInKg = extractValueFromName(vName);
+            }
+
             // Normalize size
             if (sizeInKg > 10) sizeInKg = sizeInKg / 1000;
 
@@ -484,8 +497,7 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 finalQty = sizeInKg > 0 ? Math.round(totalInKg / sizeInKg) : 1;
             }
 
-            const sizeDisplay = sizeInKg < 1 ? `${Math.round(sizeInKg * 1000)}gm` : `${sizeInKg}kg`;
-            const unitLabel = row.packet_size ? sizeDisplay : (row.variant_name || 'Std');
+            const sizeLabel = getSmartSizeLabel(sizeInKg, vName);
 
             const excelRow = worksheet.addRow([
                 row.UserID,
@@ -494,9 +506,9 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 row.OrderID,
                 row.DeliveryDate,
                 row.Product,
-                unitLabel,
+                sizeLabel,
                 finalQty,
-                formatQty(totalInKg)
+                formatWeight(totalInKg, vName)
             ]);
             excelRow.height = 20;
 
