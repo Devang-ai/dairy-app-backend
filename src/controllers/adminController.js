@@ -258,7 +258,7 @@ exports.exportRouteXLSX = async (req, res) => {
             const sizeLabel = getSmartSizeLabel(sizeInKg, vName);
 
             ordersMap.get(row.OrderID).items.push({
-                Product:  row.Product,
+                Product:  `${row.Product}${row.variant_name ? ' (' + row.variant_name + ')' : ''}`,
                 Unit:     sizeLabel,
                 Quantity: finalQty,
                 Total:    formatWeight(totalInKg, vName)
@@ -525,7 +525,7 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 row.Route || 'N/A',
                 row.OrderID,
                 row.DeliveryDate,
-                row.Product,
+                `${row.Product}${row.variant_name ? ' (' + row.variant_name + ')' : ''}`,
                 sizeLabel,
                 finalQty,
                 formatWeight(totalInKg, vName)
