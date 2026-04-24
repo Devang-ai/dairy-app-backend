@@ -459,19 +459,45 @@ exports.exportMonthlyXLSX = async (req, res) => {
             };
         });
 
+        let currentUserId = null;
+        let userStartRow = 0;
+        
         let currentOrderId = null;
         let orderStartRow = 0;
 
         rows.forEach((row, index) => {
-            const isFirstInOrder = row.OrderID !== currentOrderId;
+            const isNewUser = row.UserID !== currentUserId;
+            const isNewOrder = row.OrderID !== currentOrderId;
             
-            if (isFirstInOrder) {
+            const currentRowIndex = worksheet.rowCount + 1;
+
+            // 1. Handle User-Level Merging (Columns 1, 2, 3)
+            if (isNewUser) {
+                if (currentUserId !== null) {
+                    const endRow = worksheet.rowCount;
+                    if (endRow > userStartRow) {
+                        worksheet.mergeCells(userStartRow, 1, endRow, 1);
+                        worksheet.mergeCells(userStartRow, 2, endRow, 2);
+                        worksheet.mergeCells(userStartRow, 3, endRow, 3);
+                    }
+                }
+                currentUserId = row.UserID;
+                userStartRow = currentRowIndex;
+            }
+
+            // 2. Handle Order-Level Merging (Columns 4, 5)
+            if (isNewOrder) {
                 if (currentOrderId !== null) {
                     const endRow = worksheet.rowCount;
+                    if (endRow > orderStartRow) {
+                        worksheet.mergeCells(orderStartRow, 4, endRow, 4);
+                        worksheet.mergeCells(orderStartRow, 5, endRow, 5);
+                    }
+                    // Apply visual borders to each completed order block
                     exports.applyGroupBorders(worksheet, orderStartRow, endRow, 9, 'FF2D5E55');
                 }
                 currentOrderId = row.OrderID;
-                orderStartRow = worksheet.rowCount + 1;
+                orderStartRow = currentRowIndex;
             }
 
             // WHOLESALE RESILIENT RECOVERY (Unit-Aware)
@@ -479,16 +505,10 @@ exports.exportMonthlyXLSX = async (req, res) => {
             const totalInKg = parseFloat(String(row.qty_raw || 0)) || 0;
             const vName = row.variant_name || row.Product || '';
             
-            // FALLBACK
-            if (sizeInKg === 0) {
-                sizeInKg = extractValueFromName(vName);
-            }
-
-            // Normalize size
+            if (sizeInKg === 0) sizeInKg = extractValueFromName(vName);
             if (sizeInKg > 10) sizeInKg = sizeInKg / 1000;
 
             let finalQty = parseInt(String(row.packet_count || 0));
-            
             const expectedWeight = finalQty * sizeInKg;
             const mismatch = Math.abs(expectedWeight - totalInKg);
             const tolerance = sizeInKg > 0 ? sizeInKg * 0.4 : 0.1;
@@ -510,8 +530,8 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 finalQty,
                 formatWeight(totalInKg, vName)
             ]);
+            
             excelRow.height = 20;
-
             excelRow.eachCell({ includeEmpty: true }, (cell) => {
                 cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
                 cell.border = {
@@ -522,8 +542,20 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 };
             });
 
+            // Handle very last merges
             if (index === rows.length - 1) {
                 const endRow = worksheet.rowCount;
+                // Final User Merge
+                if (endRow > userStartRow) {
+                    worksheet.mergeCells(userStartRow, 1, endRow, 1);
+                    worksheet.mergeCells(userStartRow, 2, endRow, 2);
+                    worksheet.mergeCells(userStartRow, 3, endRow, 3);
+                }
+                // Final Order Merge
+                if (endRow > orderStartRow) {
+                    worksheet.mergeCells(orderStartRow, 4, endRow, 4);
+                    worksheet.mergeCells(orderStartRow, 5, endRow, 5);
+                }
                 exports.applyGroupBorders(worksheet, orderStartRow, endRow, 9, 'FF2D5E55');
             }
         });
