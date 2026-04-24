@@ -51,12 +51,12 @@ class Product {
         const connection = await db.getConnection();
         try {
             await connection.beginTransaction();
-            const { name, description, image_url, category, is_available, variants } = productData;
+            const { name, description, image_url, category, is_available, unit_type, base_unit, variants } = productData;
             
             // 1. Update Product Details
             await connection.execute(
-                'UPDATE products SET name = ?, description = ?, image_url = ?, category = ?, is_available = ? WHERE id = ?',
-                [name, description, image_url, category || 'All', is_available === undefined ? 1 : is_available, id]
+                'UPDATE products SET name = ?, description = ?, image_url = ?, category = ?, is_available = ?, unit_type = ?, base_unit = ? WHERE id = ?',
+                [name, description, image_url, category || 'All', is_available === undefined ? 1 : is_available, unit_type || 'weight', base_unit || 'gm', id]
             );
 
             // 2. Sync Variants (if provided)

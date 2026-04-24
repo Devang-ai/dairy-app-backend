@@ -47,13 +47,13 @@ exports.createProduct = async (req, res) => {
     try {
         await connection.beginTransaction();
         
-        const { name, description, image_url, category, variants, is_available } = req.body;
+        const { name, description, image_url, category, variants, is_available, unit_type, base_unit } = req.body;
         console.log('>>> [ProductController] Creating product with transaction:', name);
 
         // 1. Create Product
         const [productResult] = await connection.execute(
-            'INSERT INTO products (name, description, image_url, category, is_available) VALUES (?, ?, ?, ?, ?)',
-            [name, description || '', image_url || '', category || 'All', is_available === undefined ? 1 : is_available]
+            'INSERT INTO products (name, description, image_url, category, is_available, unit_type, base_unit) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [name, description || '', image_url || '', category || 'All', is_available === undefined ? 1 : is_available, unit_type || 'weight', base_unit || 'gm']
         );
         const productId = productResult.insertId;
 
