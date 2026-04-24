@@ -338,7 +338,109 @@ exports.getUsers = async (req, res) => {
 const cloudinary = require('../config/cloudinary');
 const streamifier = require('streamifier');
 
-exports.uploadImage = async (req, res) => {
+exports.testConnection = async (req, res) => {
+    res.json({ message: 'Admin API is working correctly', timestamp: new Date() });
+};
+
+exports.updateUser = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { full_name, role, route_id, contact, address, authorized_person_name } = req.body;
+        await db.execute(
+            'UPDATE users SET full_name = ?, role = ?, route_id = ?, contact = ?, address = ?, authorized_person_name = ? WHERE id = ?',
+            [full_name, role, route_id, contact, address, authorized_person_name, id]
+        );
+        res.json({ message: 'User updated successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+exports.deleteUser = async (req, res) => {
+    try {
+        const { id } = req.params;
+        await db.execute('DELETE FROM users WHERE id = ?', [id]);
+        res.json({ message: 'User deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const bcrypt = require('bcryptjs');
+exports.resetUserPassword = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { password } = req.body;
+        if (!password) return res.status(400).json({ message: 'Password is required' });
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await db.execute('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, id]);
+        res.json({ message: 'Password reset successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+exports.exportUserMonthly = async (req, res) => {
+    try {
+        const { user_id, year, month } = req.query;
+        if (!user_id || !year || !month) return res.status(400).json({ message: 'Missing parameters' });
+        
+        const pad = String(month).padStart(2, '0');
+        const startDate = `${year}-${pad}-01`;
+        const endDate = `${year}-${pad}-${new Date(year, month, 0).getDate()}`;
+
+        const [rows] = await db.execute(`
+            SELECT 
+                u.full_name AS CustomerName,
+                o.id AS OrderID, DATE_FORMAT(o.delivery_date, '%d-%b-%Y') AS DeliveryDate,
+                p.name AS Product, p.unit_type, pv.variant_name,
+                oi.packet_count, oi.packet_size, oi.quantity AS qty_raw
+            FROM orders o
+            JOIN users u ON o.user_id = u.id
+            JOIN order_items oi ON o.id = oi.order_id
+            JOIN products p ON oi.product_id = p.id
+            LEFT JOIN product_variants pv ON oi.variant_id = pv.id
+            WHERE o.user_id = ? AND DATE(o.delivery_date) BETWEEN ? AND ?
+            ORDER BY o.delivery_date, o.id
+        `, [user_id, startDate, endDate]);
+
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet('User Monthly Report');
+        const CustomerName = rows[0]?.CustomerName || 'User';
+
+        worksheet.columns = [
+            { header: 'Order ID', key: 'OrderID', width: 12 },
+            { header: 'Delivery Date', key: 'Date', width: 18 },
+            { header: 'Product', key: 'Product', width: 25 },
+            { header: 'Unit Size', key: 'Unit', width: 15 },
+            { header: 'Quantity', key: 'Qty', width: 12 },
+            { header: 'Total Weight/Vol', key: 'Total', width: 18 }
+        ];
+
+        rows.forEach(row => {
+            let size = parseFloat(row.packet_size || 0) || 0;
+            const total = parseFloat(row.qty_raw || 0) || 0;
+            if (size === 0) size = extractBaseValue(row.variant_name || row.Product);
+            if (size > 0 && size < 50) size = size * 1000;
+
+            worksheet.addRow({
+                OrderID: row.OrderID,
+                Date: row.DeliveryDate,
+                Product: `${row.Product}${row.variant_name ? ' (' + row.variant_name + ')' : ''}`,
+                Unit: formatUnitDisplay(size, row.unit_type),
+                Qty: row.packet_count || 1,
+                Total: formatUnitDisplay(total, row.unit_type)
+            });
+        });
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="Monthly_${CustomerName}_${month}_${year}.xlsx"`);
+        await workbook.xlsx.write(res);
+        res.end();
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};exports.uploadImage = async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ message: 'No file' });
         const result = await new Promise((resolve, reject) => {
