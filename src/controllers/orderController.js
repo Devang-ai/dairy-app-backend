@@ -407,12 +407,12 @@ exports.getMonthlyReport = async (req, res) => {
         const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
         const endDate   = `${year}-${pad}-${lastDay}`;
 
-        // Build route filter
+        // Build route filter — route_id is on orders table (o), NOT users table
         let routeFilter = '';
         const params = [startDate, endDate];
         const cleanRoute = (route_id === 'null' || route_id === 'all' || !route_id) ? null : route_id;
         if (cleanRoute) {
-            routeFilter = ' AND u.route_id = ?';
+            routeFilter = ' AND o.route_id = ?';
             params.push(cleanRoute);
         }
 
@@ -421,16 +421,16 @@ exports.getMonthlyReport = async (req, res) => {
             SELECT 
                 u.id AS user_id,
                 u.full_name AS customer_name,
-                u.username AS contact,
+                u.contact,
                 r.name AS route_name,
                 COUNT(DISTINCT o.id) AS total_orders,
                 SUM(CASE WHEN o.status IN ('Delivered','delivered') THEN 1 ELSE 0 END) AS delivered_orders
             FROM users u
             JOIN orders o ON o.user_id = u.id
-            LEFT JOIN routes r ON u.route_id = r.id
+            LEFT JOIN routes r ON o.route_id = r.id
             WHERE DATE(o.delivery_date) BETWEEN ? AND ?
             ${routeFilter}
-            GROUP BY u.id, u.full_name, u.username, r.name
+            GROUP BY u.id, u.full_name, u.contact, r.name
             ORDER BY r.name, u.full_name
         `, params);
 

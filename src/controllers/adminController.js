@@ -232,7 +232,7 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 oi.packet_count, oi.packet_size, oi.quantity AS qty_raw
             FROM users u
             JOIN orders o ON o.user_id = u.id
-            LEFT JOIN routes r ON u.route_id = r.id
+            LEFT JOIN routes r ON o.route_id = r.id
             JOIN order_items oi ON o.id = oi.order_id
             JOIN products p ON oi.product_id = p.id
             LEFT JOIN product_variants pv ON oi.variant_id = pv.id
