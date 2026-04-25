@@ -442,8 +442,11 @@ exports.getMonthlyReport = async (req, res) => {
                 DATE_FORMAT(o.delivery_date, '%d-%b-%Y') AS delivery_date,
                 o.status,
                 p.name AS product_name,
+                p.unit_type,
                 pv.variant_name,
-                oi.quantity
+                oi.quantity,
+                oi.packet_size,
+                oi.packet_count
             FROM orders o
             JOIN order_items oi ON oi.order_id = o.id
             JOIN products p ON p.id = oi.product_id
@@ -469,13 +472,17 @@ exports.getMonthlyReport = async (req, res) => {
                     items:         []
                 });
             }
-            const qty = parseFloat(item.quantity) || 0;
-            const qtyStr = Order.formatQuantity(qty, item.variant_name);
+            // Send raw values — frontend formatUnit handles scaling
             user.orders.get(item.order_id).items.push({
-                product: item.product_name,
-                quantity: qtyStr
+                product:      item.product_name,
+                variant_name: item.variant_name || null,
+                unit_type:    item.unit_type    || 'weight',
+                quantity:     parseFloat(item.quantity)    || 0,
+                packet_size:  parseFloat(item.packet_size) || 0,
+                packet_count: parseInt(item.packet_count)  || 0,
             });
         }
+
 
         // 4. Serialise Map → Array
         const users = [...userMap.values()].map(u => ({
