@@ -94,17 +94,21 @@ class Order {
         for (const item of items) {
             let existing = [];
             try {
-                if (hasVariantId && item.variant_id) {
-                    [existing] = await connection.execute(
-                        'SELECT id, quantity, packet_count FROM order_items WHERE order_id = ? AND product_id = ? AND variant_id = ? AND packet_size = ?',
-                        [orderId, item.product_id, item.variant_id, item.packet_size]
-                    );
-                } else {
-                    [existing] = await connection.execute(
-                        'SELECT id, quantity, packet_count FROM order_items WHERE order_id = ? AND product_id = ? AND (variant_id IS NULL OR variant_id = 0) AND packet_size = ?',
-                        [orderId, item.product_id, item.packet_size]
-                    );
-                }
+                // ULTRA-ROBUST: Use COALESCE to handle NULL/0 interchangeably and strictly check size
+                const sql = `
+                    SELECT id, quantity, packet_count 
+                    FROM order_items 
+                    WHERE order_id = ? 
+                    AND product_id = ? 
+                    AND COALESCE(variant_id, 0) = ? 
+                    AND COALESCE(packet_size, 0) = ?
+                `;
+                [existing] = await connection.execute(sql, [
+                    orderId, 
+                    item.product_id, 
+                    item.variant_id || 0, 
+                    item.packet_size || 0
+                ]);
             } catch (selectErr) {
                 console.warn('[OrderModel] Select error (fallback used):', selectErr.message);
                 [existing] = await connection.execute(
