@@ -110,11 +110,19 @@ class Order {
                     item.packet_size || 0
                 ]);
             } catch (selectErr) {
-                console.warn('[OrderModel] Select error (fallback used):', selectErr.message);
-                [existing] = await connection.execute(
-                    'SELECT id, quantity FROM order_items WHERE order_id = ? AND product_id = ?',
-                    [orderId, item.product_id]
-                );
+                console.warn('[OrderModel] Primary select failed, using strict variant fallback:', selectErr.message);
+                // Even in fallback, we MUST respect variant_id and packet_size if they exist
+                const fallbackSql = `
+                    SELECT id, quantity, packet_count FROM order_items 
+                    WHERE order_id = ? AND product_id = ? 
+                    ${hasVariantId ? 'AND COALESCE(variant_id, 0) = ?' : ''}
+                    ${hasPacketFields ? 'AND COALESCE(packet_size, 0) = ?' : ''}
+                `;
+                const params = [orderId, item.product_id];
+                if (hasVariantId) params.push(item.variant_id || 0);
+                if (hasPacketFields) params.push(item.packet_size || 0);
+                
+                [existing] = await connection.execute(fallbackSql, params);
             }
 
             if (existing.length > 0) {
