@@ -94,14 +94,14 @@ class Order {
         for (const item of items) {
             let existing = [];
             try {
-                if (hasVariantId) {
+                if (hasVariantId && item.variant_id) {
                     [existing] = await connection.execute(
                         'SELECT id, quantity, packet_count FROM order_items WHERE order_id = ? AND product_id = ? AND variant_id = ?',
-                        [orderId, item.product_id, item.variant_id || 0]
+                        [orderId, item.product_id, item.variant_id]
                     );
                 } else {
                     [existing] = await connection.execute(
-                        'SELECT id, quantity, packet_count FROM order_items WHERE order_id = ? AND product_id = ?',
+                        'SELECT id, quantity, packet_count FROM order_items WHERE order_id = ? AND product_id = ? AND (variant_id IS NULL OR variant_id = 0)',
                         [orderId, item.product_id]
                     );
                 }
