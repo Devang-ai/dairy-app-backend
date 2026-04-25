@@ -96,13 +96,13 @@ class Order {
             try {
                 if (hasVariantId && item.variant_id) {
                     [existing] = await connection.execute(
-                        'SELECT id, quantity, packet_count FROM order_items WHERE order_id = ? AND product_id = ? AND variant_id = ?',
-                        [orderId, item.product_id, item.variant_id]
+                        'SELECT id, quantity, packet_count FROM order_items WHERE order_id = ? AND product_id = ? AND variant_id = ? AND packet_size = ?',
+                        [orderId, item.product_id, item.variant_id, item.packet_size]
                     );
                 } else {
                     [existing] = await connection.execute(
-                        'SELECT id, quantity, packet_count FROM order_items WHERE order_id = ? AND product_id = ? AND (variant_id IS NULL OR variant_id = 0)',
-                        [orderId, item.product_id]
+                        'SELECT id, quantity, packet_count FROM order_items WHERE order_id = ? AND product_id = ? AND (variant_id IS NULL OR variant_id = 0) AND packet_size = ?',
+                        [orderId, item.product_id, item.packet_size]
                     );
                 }
             } catch (selectErr) {
