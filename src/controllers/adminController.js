@@ -213,11 +213,16 @@ exports.exportRouteXLSX = async (req, res) => {
 
 exports.exportMonthlyXLSX = async (req, res) => {
     try {
-        const { year, month } = req.query;
+        const { year, month, route_id } = req.query;
         const pad = String(month).padStart(2, '0');
         const startDate = `${year}-${pad}-01`;
         const lastDay = new Date(year, month, 0).getDate();
         const endDate = `${year}-${pad}-${lastDay}`;
+
+        // Build route filter
+        const cleanRoute = (route_id === 'null' || route_id === 'all' || !route_id) ? null : route_id;
+        const routeFilter = cleanRoute ? 'AND u.route_id = ?' : '';
+        const params = cleanRoute ? [startDate, endDate, cleanRoute] : [startDate, endDate];
 
         const [rows] = await db.execute(`
             SELECT 
@@ -231,9 +236,9 @@ exports.exportMonthlyXLSX = async (req, res) => {
             JOIN order_items oi ON o.id = oi.order_id
             JOIN products p ON oi.product_id = p.id
             LEFT JOIN product_variants pv ON oi.variant_id = pv.id
-            WHERE DATE(o.delivery_date) BETWEEN ? AND ?
+            WHERE DATE(o.delivery_date) BETWEEN ? AND ? ${routeFilter}
             ORDER BY r.name, u.full_name, o.delivery_date, o.id
-        `, [startDate, endDate]);
+        `, params);
 
         const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet('Monthly Report');
