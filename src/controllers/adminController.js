@@ -237,23 +237,39 @@ exports.exportMonthlyXLSX = async (req, res) => {
 
         const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet('Monthly Report');
+
+        // Wide columns with headers defined in-place for reliable widths
         worksheet.columns = [
-            { key: 'UserID', width: 10 }, { key: 'CustomerName', width: 22 }, { key: 'Route', width: 15 },
-            { key: 'OrderID', width: 10 }, { key: 'Date', width: 15 }, { key: 'Product', width: 25 },
-            { key: 'Unit', width: 12 }, { key: 'Quantity', width: 10 }, { key: 'Total', width: 15 }
+            { header: 'User ID',          key: 'UserID',       width: 12 },
+            { header: 'Customer Name',     key: 'CustomerName', width: 28 },
+            { header: 'Route',             key: 'Route',        width: 20 },
+            { header: 'Order ID',          key: 'OrderID',      width: 12 },
+            { header: 'Date',              key: 'Date',         width: 18 },
+            { header: 'Product',           key: 'Product',      width: 40 },
+            { header: 'Unit Size',         key: 'Unit',         width: 18 },
+            { header: 'Packet Qty',        key: 'Quantity',     width: 18 },
+            { header: 'Total Weight/Vol',  key: 'Total',        width: 25 },
         ];
 
-        const headerRow = worksheet.addRow(['User ID', 'Customer Name', 'Route', 'Order ID', 'Date', 'Product', 'Unit Size', 'Packet Qty', 'Total Weight/Vol']);
+        // Style header row (row 1 auto-created by ExcelJS from column headers)
+        const headerRow = worksheet.getRow(1);
+        headerRow.height = 30;
         headerRow.eachCell(cell => {
-            cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2D5E55' } };
-            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            cell.font  = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+            cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2D5E55' } };
+            cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+            cell.border = {
+                top:    { style: 'thin', color: { argb: 'FFFFFFFF' } },
+                left:   { style: 'thin', color: { argb: 'FFFFFFFF' } },
+                bottom: { style: 'thin', color: { argb: 'FFFFFFFF' } },
+                right:  { style: 'thin', color: { argb: 'FFFFFFFF' } },
+            };
         });
 
         let curUser = null, userStart = 0, curOrder = null, orderStart = 0;
 
         rows.forEach((row, i) => {
-            const isNewUser = row.UserID !== curUser;
+            const isNewUser  = row.UserID  !== curUser;
             const isNewOrder = row.OrderID !== curOrder;
             const rowIdx = worksheet.rowCount + 1;
 
@@ -274,28 +290,42 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 curOrder = row.OrderID; orderStart = rowIdx;
             }
 
-            let size = parseFloat(row.packet_size || 0) || 0;
-            const total = parseFloat(row.qty_raw || 0) || 0;
+            // SCALING FIX: normalize both size and total (same logic as Route export)
+            let size  = parseFloat(row.packet_size || 0) || 0;
+            let total = parseFloat(row.qty_raw     || 0) || 0;
+            if (size  > 0 && size  < 50) size  = size  * 1000;
+            if (total > 0 && total < 50) total = total * 1000;
             if (size === 0) size = extractBaseValue(row.variant_name || row.Product);
-            if (size > 0 && size < 50) size = size * 1000;
 
             let count = parseInt(row.packet_count || 0);
             if (count <= 0 && size > 0) count = Math.round(total / size);
+            if (count <= 0) count = 1;
 
             const excelRow = worksheet.addRow([
-                row.UserID, row.CustomerName, row.Route || 'N/A', row.OrderID, row.DeliveryDate,
+                row.UserID,
+                row.CustomerName,
+                row.Route || 'N/A',
+                row.OrderID,
+                row.DeliveryDate,
                 `${row.Product}${row.variant_name ? ' (' + row.variant_name + ')' : ''}`,
-                formatUnitDisplay(size, row.unit_type), count || 1, formatUnitDisplay(total, row.unit_type)
+                formatUnitDisplay(size,  row.unit_type),
+                count,
+                formatUnitDisplay(total, row.unit_type),
             ]);
             excelRow.eachCell({ includeEmpty: true }, cell => {
                 cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-                cell.border = { top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'}};
+                cell.border = {
+                    top:    { style: 'thin' },
+                    bottom: { style: 'thin' },
+                    left:   { style: 'thin' },
+                    right:  { style: 'thin' },
+                };
             });
 
             if (i === rows.length - 1) {
                 const end = worksheet.rowCount;
-                if (end > userStart) [1,2,3].forEach(c => worksheet.mergeCells(userStart, c, end, c));
-                if (end > orderStart) [4,5].forEach(c => worksheet.mergeCells(orderStart, c, end, c));
+                if (end > userStart)  [1,2,3].forEach(c => worksheet.mergeCells(userStart,  c, end, c));
+                if (end > orderStart) [4,5].forEach(c   => worksheet.mergeCells(orderStart, c, end, c));
                 exports.applyGroupBorders(worksheet, orderStart, end, 9, 'FF2D5E55');
             }
         });
