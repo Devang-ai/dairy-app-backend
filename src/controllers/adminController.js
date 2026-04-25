@@ -125,10 +125,13 @@ exports.exportRouteXLSX = async (req, res) => {
             }
             
             let size = parseFloat(row.packet_size || 0) || 0;
-            const total = parseFloat(row.qty_raw || 0) || 0;
-            if (size === 0) size = extractBaseValue(row.variant_name || row.Product);
-            // Safety: if legacy size was stored in KG/L, convert to Base
+            let total = parseFloat(row.qty_raw || 0) || 0;
+            
+            // Stabilization: If stored in KG/L (legacy), normalize to Grams/ML
             if (size > 0 && size < 50) size = size * 1000;
+            if (total > 0 && total < 50) total = total * 1000;
+
+            if (size === 0) size = extractBaseValue(row.variant_name || row.Product);
 
             let count = parseInt(row.packet_count || 0);
             if (count <= 0 && size > 0) count = Math.round(total / size);
@@ -143,26 +146,51 @@ exports.exportRouteXLSX = async (req, res) => {
 
         const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet('Delivery Report');
+        
+        // Define Columns properly with headers
         worksheet.columns = [
-            { key: 'OrderID', width: 10 }, { key: 'CustomerName', width: 22 }, { key: 'Route', width: 14 },
-            { key: 'Address', width: 28 }, { key: 'DeliveryDate', width: 16 }, { key: 'Product', width: 25 },
-            { key: 'Unit', width: 12 }, { key: 'Quantity', width: 8 }, { key: 'Total', width: 12 }
+            { header: 'Order ID', key: 'OrderID', width: 12 }, 
+            { header: 'Customer Name', key: 'CustomerName', width: 25 }, 
+            { header: 'Route', key: 'Route', width: 20 },
+            { header: 'Address', key: 'Address', width: 35 }, 
+            { header: 'Delivery Date', key: 'DeliveryDate', width: 18 }, 
+            { header: 'Product', key: 'Product', width: 35 },
+            { header: 'Unit Size', key: 'Unit', width: 15 }, 
+            { header: 'Packet Qty', key: 'Quantity', width: 18 }, 
+            { header: 'Total Weight/Vol', key: 'Total', width: 22 }
         ];
 
-        const headerRow = worksheet.addRow(['Order ID', 'Customer Name', 'Route', 'Address', 'Delivery Date', 'Product', 'Unit Size', 'Packet Qty', 'Total Weight/Vol']);
+        // Style the first row (headers)
+        const headerRow = worksheet.getRow(1);
+        headerRow.height = 30; // Extra height for headers
         headerRow.eachCell(cell => {
-            cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+            cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A5276' } };
-            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+            cell.border = {
+                top:    { style: 'thin', color: { argb: 'FFFFFFFF' } },
+                left:   { style: 'thin', color: { argb: 'FFFFFFFF' } },
+                bottom: { style: 'thin', color: { argb: 'FFFFFFFF' } },
+                right:  { style: 'thin', color: { argb: 'FFFFFFFF' } }
+            };
+        });
+
+        // Set widths explicitly again to be absolutely sure
+        [1,2,3,4,5,6,7,8,9].forEach(colIdx => {
+            const col = worksheet.getColumn(colIdx);
+            if (colIdx === 6) col.width = 40; // Product
+            else if (colIdx === 8) col.width = 20; // Qty
+            else if (colIdx === 9) col.width = 25; // Total
         });
 
         for (const order of ordersMap.values()) {
             const startRow = worksheet.rowCount + 1;
             order.items.forEach(item => {
-                const row = worksheet.addRow([
+                const rowData = [
                     order.OrderID, order.CustomerName, order.Route, order.Address, order.DeliveryDate,
                     item.Product, item.Unit, item.Quantity, item.Total
-                ]);
+                ];
+                const row = worksheet.addRow(rowData);
                 row.eachCell({ includeEmpty: true }, (cell, col) => {
                     cell.alignment = { vertical: 'middle', horizontal: col <= 5 ? 'center' : 'left', wrapText: true };
                 });
