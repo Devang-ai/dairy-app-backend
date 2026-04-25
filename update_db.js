@@ -45,6 +45,27 @@ async function updateDb() {
         console.log('Error updating routes:', e.message);
     }
 
+    try {
+        await connection.query(`ALTER TABLE order_items ADD COLUMN packet_count INT DEFAULT 0`);
+        console.log('Added packet_count to order_items table');
+    } catch (e) {
+        console.log('packet_count column might already exist:', e.message);
+    }
+
+    try {
+        await connection.query(`ALTER TABLE order_items ADD COLUMN packet_size DECIMAL(10,3) DEFAULT 0`);
+        console.log('Added packet_size to order_items table');
+    } catch (e) {
+        console.log('packet_size column might already exist:', e.message);
+    }
+
+    try {
+        await connection.query(`ALTER TABLE order_items ADD COLUMN unit_type VARCHAR(20) DEFAULT 'weight'`);
+        console.log('Added unit_type to order_items table');
+    } catch (e) {
+        console.log('unit_type column might already exist:', e.message);
+    }
+
     await connection.end();
 }
 
