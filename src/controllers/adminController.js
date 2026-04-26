@@ -409,9 +409,14 @@ exports.updateUser = async (req, res) => {
     try {
         const { id } = req.params;
         const { full_name, role, route_id, contact, address, authorized_person_name } = req.body;
+        
+        // Don't overwrite role if not provided
+        const [currentUser] = await db.execute('SELECT role FROM users WHERE id = ?', [id]);
+        const targetRole = role || (currentUser[0] ? currentUser[0].role : 'user');
+
         await db.execute(
             'UPDATE users SET full_name = ?, role = ?, route_id = ?, contact = ?, address = ?, authorized_person_name = ? WHERE id = ?',
-            [full_name, role, route_id, contact, address, authorized_person_name, id]
+            [full_name, targetRole, route_id, contact, address, authorized_person_name, id]
         );
         res.json({ message: 'User updated successfully' });
     } catch (error) {
@@ -433,9 +438,10 @@ const bcrypt = require('bcryptjs');
 exports.resetUserPassword = async (req, res) => {
     try {
         const { id } = req.params;
-        const { password } = req.body;
-        if (!password) return res.status(400).json({ message: 'Password is required' });
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const { password, newPassword } = req.body;
+        const finalPassword = password || newPassword;
+        if (!finalPassword) return res.status(400).json({ message: 'Password is required' });
+        const hashedPassword = await bcrypt.hash(finalPassword, 10);
         await db.execute('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, id]);
         res.json({ message: 'Password reset successfully' });
     } catch (error) {
