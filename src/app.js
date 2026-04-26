@@ -9,10 +9,35 @@ const adminRoutes = require('./routes/adminRoutes');
 
 const app = express();
 
+// ── Security & Performance Middleware ─────────────────────────────────────
+try {
+  const helmet = require('helmet');
+  app.use(helmet());
+} catch(e) { console.warn('helmet not installed, skipping'); }
+
+try {
+  const compression = require('compression');
+  app.use(compression());
+} catch(e) { console.warn('compression not installed, skipping'); }
+
+// Rate limiting — 100 requests per 15 min per IP (prevents abuse/crash)
+try {
+  const rateLimit = require('express-rate-limit');
+  const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100,                  // max 100 requests per window
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: 'Too many requests, please try again later.' }
+  });
+  app.use('/api/', limiter);
+  console.log('>>> Rate limiting active: 100 req/15min per IP');
+} catch(e) { console.warn('express-rate-limit not installed, skipping'); }
+
 // Middleware
 app.use(cors());
 app.use(morgan('dev'));
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Routes
