@@ -183,23 +183,44 @@ exports.exportRouteXLSX = async (req, res) => {
             else if (colIdx === 9) col.width = 25; // Total
         });
 
+        const USER_COLORS = ['FFEAF4FF', 'FFF5F5F5', 'FFFFF9E6'];
+        let colorIndex = -1;
+        let lastCustomerName = null;
+
         for (const order of ordersMap.values()) {
-            const startRow = worksheet.rowCount + 1;
-            order.items.forEach(item => {
+            let isNewUser = false;
+            if (lastCustomerName !== order.CustomerName) {
+                colorIndex = (colorIndex + 1) % USER_COLORS.length;
+                lastCustomerName = order.CustomerName;
+                isNewUser = true;
+            }
+            const bgColor = USER_COLORS[colorIndex];
+
+            order.items.forEach((item, idx) => {
                 const rowData = [
-                    order.OrderID, order.CustomerName, order.Route, order.Address, order.DeliveryDate,
+                    idx === 0 ? order.OrderID : '', 
+                    idx === 0 ? order.CustomerName : '', 
+                    idx === 0 ? order.Route : '', 
+                    idx === 0 ? order.Address : '', 
+                    idx === 0 ? order.DeliveryDate : '',
                     item.Product, item.Unit, item.Quantity, item.Total
                 ];
+                
                 const row = worksheet.addRow(rowData);
+                const applyThickTop = (isNewUser && idx === 0);
+
                 row.eachCell({ includeEmpty: true }, (cell, col) => {
                     cell.alignment = { vertical: 'middle', horizontal: col <= 5 ? 'center' : 'left', wrapText: true };
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
+                    
+                    cell.border = {
+                        left:   { style: 'thin', color: { argb: 'FFB0BEC5' } },
+                        right:  { style: 'thin', color: { argb: 'FFB0BEC5' } },
+                        bottom: { style: 'thin', color: { argb: 'FFB0BEC5' } },
+                        top: applyThickTop ? { style: 'medium', color: { argb: 'FF546E7A' } } : { style: 'thin', color: { argb: 'FFB0BEC5' } }
+                    };
                 });
             });
-            const endRow = worksheet.rowCount;
-            if (order.items.length > 1) {
-                [1,2,3,4,5].forEach(col => worksheet.mergeCells(startRow, col, endRow, col));
-            }
-            exports.applyGroupBorders(worksheet, startRow, endRow, 9, 'FF1A5276');
         }
 
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -271,29 +292,23 @@ exports.exportMonthlyXLSX = async (req, res) => {
             };
         });
 
-        let curUser = null, userStart = 0, curOrder = null, orderStart = 0;
+        const USER_COLORS = ['FFEAF4FF', 'FFF5F5F5', 'FFFFF9E6'];
+        let colorIndex = -1;
+        let curUser = null;
+        let curOrder = null;
 
         rows.forEach((row, i) => {
             const isNewUser  = row.UserID  !== curUser;
             const isNewOrder = row.OrderID !== curOrder;
-            const rowIdx = worksheet.rowCount + 1;
 
             if (isNewUser) {
-                if (curUser !== null) {
-                    const end = worksheet.rowCount;
-                    if (end > userStart) [1,2,3].forEach(c => worksheet.mergeCells(userStart, c, end, c));
-                }
-                curUser = row.UserID; userStart = rowIdx;
+                colorIndex = (colorIndex + 1) % USER_COLORS.length;
+                curUser = row.UserID;
             }
-
             if (isNewOrder) {
-                if (curOrder !== null) {
-                    const end = worksheet.rowCount;
-                    if (end > orderStart) [4,5].forEach(c => worksheet.mergeCells(orderStart, c, end, c));
-                    exports.applyGroupBorders(worksheet, orderStart, end, 9, 'FF2D5E55');
-                }
-                curOrder = row.OrderID; orderStart = rowIdx;
+                curOrder = row.OrderID;
             }
+            const bgColor = USER_COLORS[colorIndex];
 
             // SCALING FIX: normalize both size and total (same logic as Route export)
             let size  = parseFloat(row.packet_size || 0) || 0;
@@ -307,32 +322,30 @@ exports.exportMonthlyXLSX = async (req, res) => {
             if (count <= 0) count = 1;
 
             const excelRow = worksheet.addRow([
-                row.UserID,
-                row.CustomerName,
-                row.Route || 'N/A',
-                row.OrderID,
-                row.DeliveryDate,
+                isNewUser ? row.UserID : '',
+                isNewUser ? row.CustomerName : '',
+                isNewUser ? (row.Route || 'N/A') : '',
+                isNewOrder ? row.OrderID : '',
+                isNewOrder ? row.DeliveryDate : '',
                 `${row.Product}${row.variant_name ? ' (' + row.variant_name + ')' : ''}`,
                 formatUnitDisplay(size,  row.unit_type),
                 count,
                 formatUnitDisplay(total, row.unit_type),
             ]);
-            excelRow.eachCell({ includeEmpty: true }, cell => {
-                cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+
+            const applyThickTop = (isNewUser);
+
+            excelRow.eachCell({ includeEmpty: true }, (cell, col) => {
+                cell.alignment = { vertical: 'middle', horizontal: col <= 5 ? 'center' : 'left', wrapText: true };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
+                
                 cell.border = {
-                    top:    { style: 'thin' },
-                    bottom: { style: 'thin' },
-                    left:   { style: 'thin' },
-                    right:  { style: 'thin' },
+                    left:   { style: 'thin', color: { argb: 'FFB0BEC5' } },
+                    right:  { style: 'thin', color: { argb: 'FFB0BEC5' } },
+                    bottom: { style: 'thin', color: { argb: 'FFB0BEC5' } },
+                    top: applyThickTop ? { style: 'medium', color: { argb: 'FF546E7A' } } : { style: 'thin', color: { argb: 'FFB0BEC5' } }
                 };
             });
-
-            if (i === rows.length - 1) {
-                const end = worksheet.rowCount;
-                if (end > userStart)  [1,2,3].forEach(c => worksheet.mergeCells(userStart,  c, end, c));
-                if (end > orderStart) [4,5].forEach(c   => worksheet.mergeCells(orderStart, c, end, c));
-                exports.applyGroupBorders(worksheet, orderStart, end, 9, 'FF2D5E55');
-            }
         });
 
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
