@@ -209,25 +209,29 @@ exports.exportRouteXLSX = async (req, res) => {
                 ];
                 
                 const row = worksheet.addRow(rowData);
-                const isLastRowOfOrder = (idx === order.items.length - 1);
-                const applyThickTop = (isNewUser && idx === 0);
 
                 row.eachCell({ includeEmpty: true }, (cell, col) => {
                     cell.alignment = { vertical: 'middle', horizontal: col <= 5 ? 'center' : 'left', wrapText: true };
                     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
-                    
-                    cell.border = {
-                        left:   { style: 'thin', color: { argb: 'FF9E9E9E' } },
-                        right:  { style: 'thin', color: { argb: 'FF9E9E9E' } },
-                        bottom: isLastRowOfOrder ? { style: 'medium', color: { argb: 'FF000000' } } : { style: 'thin', color: { argb: 'FF9E9E9E' } },
-                        top: applyThickTop ? { style: 'medium', color: { argb: 'FF000000' } } : { style: 'thin', color: { argb: 'FF9E9E9E' } }
-                    };
                 });
             });
             
             const endRow = worksheet.rowCount;
             if (order.items.length > 1) {
                 [1,2,3,4,5].forEach(col => worksheet.mergeCells(startRow, col, endRow, col));
+            }
+
+            // Apply borders AFTER merge to guarantee they aren't hidden by ExcelJS
+            for (let r = startRow; r <= endRow; r++) {
+                for (let c = 1; c <= 9; c++) {
+                    const cell = worksheet.getCell(r, c);
+                    cell.border = {
+                        left:   { style: 'thin', color: { argb: 'FF9E9E9E' } },
+                        right:  { style: 'thin', color: { argb: 'FF9E9E9E' } },
+                        bottom: (r === endRow) ? { style: 'medium', color: { argb: 'FF000000' } } : { style: 'thin', color: { argb: 'FF9E9E9E' } },
+                        top: (r === startRow && isNewUser) ? { style: 'medium', color: { argb: 'FF000000' } } : { style: 'thin', color: { argb: 'FF9E9E9E' } }
+                    };
+                }
             }
         }
 
@@ -325,6 +329,12 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 if (curOrder !== null) {
                     const end = worksheet.rowCount;
                     if (end > orderStart) [4,5].forEach(c => worksheet.mergeCells(orderStart, c, end, c));
+                    
+                    // Explicitly set thick bottom border for the previous order's last row after merges
+                    for (let c = 1; c <= 9; c++) {
+                        const cell = worksheet.getCell(end, c);
+                        cell.border = { ...cell.border, bottom: { style: 'medium', color: { argb: 'FF000000' } } };
+                    }
                 }
                 curOrder = row.OrderID;
                 orderStart = rowIdx;
@@ -356,7 +366,6 @@ exports.exportMonthlyXLSX = async (req, res) => {
             ]);
 
             const applyThickTop = (isNewUser);
-            const isLastRowOfOrder = (i === rows.length - 1) || (rows[i + 1].OrderID !== row.OrderID);
 
             excelRow.eachCell({ includeEmpty: true }, (cell, col) => {
                 cell.alignment = { vertical: 'middle', horizontal: col <= 5 ? 'center' : 'left', wrapText: true };
@@ -365,15 +374,22 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 cell.border = {
                     left:   { style: 'thin', color: { argb: 'FF9E9E9E' } },
                     right:  { style: 'thin', color: { argb: 'FF9E9E9E' } },
-                    bottom: isLastRowOfOrder ? { style: 'medium', color: { argb: 'FF000000' } } : { style: 'thin', color: { argb: 'FF9E9E9E' } },
+                    bottom: { style: 'thin', color: { argb: 'FF9E9E9E' } },
                     top: applyThickTop ? { style: 'medium', color: { argb: 'FF000000' } } : { style: 'thin', color: { argb: 'FF9E9E9E' } }
                 };
             });
 
+            // If it's the last row overall, handle the final merges and borders
             if (i === rows.length - 1) {
                 const end = worksheet.rowCount;
                 if (end > userStart)  [1,2,3].forEach(c => worksheet.mergeCells(userStart, c, end, c));
                 if (end > orderStart) [4,5].forEach(c => worksheet.mergeCells(orderStart, c, end, c));
+                
+                // Explicitly set the thick bottom border for the very last row after merges
+                for (let c = 1; c <= 9; c++) {
+                    const cell = worksheet.getCell(end, c);
+                    cell.border = { ...cell.border, bottom: { style: 'medium', color: { argb: 'FF000000' } } };
+                }
             }
         });
 
