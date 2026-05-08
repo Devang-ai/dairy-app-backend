@@ -333,7 +333,7 @@ exports.exportMonthlyXLSX = async (req, res) => {
                     // Explicitly set thick bottom border for the previous order's last row after merges
                     for (let c = 1; c <= 9; c++) {
                         const cell = worksheet.getCell(end, c);
-                        cell.border = { ...cell.border, bottom: { style: 'medium', color: { argb: 'FF000000' } } };
+                        cell.border = { ...(cell.border || {}), bottom: { style: 'medium', color: { argb: 'FF000000' } } };
                     }
                 }
                 curOrder = row.OrderID;
@@ -388,7 +388,7 @@ exports.exportMonthlyXLSX = async (req, res) => {
                 // Explicitly set the thick bottom border for the very last row after merges
                 for (let c = 1; c <= 9; c++) {
                     const cell = worksheet.getCell(end, c);
-                    cell.border = { ...cell.border, bottom: { style: 'medium', color: { argb: 'FF000000' } } };
+                    cell.border = { ...(cell.border || {}), bottom: { style: 'medium', color: { argb: 'FF000000' } } };
                 }
             }
         });
@@ -688,7 +688,7 @@ exports.exportUserMonthly = async (req, res) => {
                     // Explicitly set thick bottom border for the previous order's last row after merges
                     for (let c = 1; c <= 6; c++) {
                         const cell = worksheet.getCell(end, c);
-                        cell.border = { ...cell.border, bottom: { style: 'medium', color: { argb: 'FF000000' } } };
+                        cell.border = { ...(cell.border || {}), bottom: { style: 'medium', color: { argb: 'FF000000' } } };
                     }
                 }
                 colorIndex = (colorIndex + 1) % USER_COLORS.length;
@@ -736,7 +736,7 @@ exports.exportUserMonthly = async (req, res) => {
                 if (end > orderStart) [1,2].forEach(c => worksheet.mergeCells(orderStart, c, end, c));
                 for (let c = 1; c <= 6; c++) {
                     const cell = worksheet.getCell(end, c);
-                    cell.border = { ...cell.border, bottom: { style: 'medium', color: { argb: 'FF000000' } } };
+                    cell.border = { ...(cell.border || {}), bottom: { style: 'medium', color: { argb: 'FF000000' } } };
                 }
             }
         });
