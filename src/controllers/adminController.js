@@ -402,6 +402,114 @@ exports.exportMonthlyXLSX = async (req, res) => {
     }
 };
 
+exports.exportProductSalesXLSX = async (req, res) => {
+    try {
+        const { year, month, route_id } = req.query;
+        if (!year || !month) return res.status(400).json({ message: 'Year and month required' });
+        
+        const pad = String(month).padStart(2, '0');
+        const startDate = `${year}-${pad}-01`;
+        const lastDay = new Date(year, month, 0).getDate();
+        const endDate = `${year}-${pad}-${lastDay}`;
+
+        const cleanRoute = (route_id === 'null' || route_id === 'all' || !route_id) ? null : route_id;
+        const routeFilter = cleanRoute ? 'AND o.route_id = ?' : '';
+        const params = cleanRoute ? [startDate, endDate, cleanRoute] : [startDate, endDate];
+
+        const [rows] = await db.execute(`
+            SELECT 
+                p.name AS Product, p.unit_type, pv.variant_name,
+                oi.packet_count, oi.packet_size, oi.quantity AS qty_raw
+            FROM orders o
+            JOIN order_items oi ON o.id = oi.order_id
+            JOIN products p ON oi.product_id = p.id
+            LEFT JOIN product_variants pv ON oi.variant_id = pv.id
+            WHERE DATE(o.delivery_date) BETWEEN ? AND ? ${routeFilter}
+        `, params);
+
+        const salesMap = new Map();
+
+        rows.forEach(row => {
+            let size = parseFloat(row.packet_size || 0) || 0;
+            let total = parseFloat(row.qty_raw || 0) || 0;
+            if (size > 0 && size < 50) size = size * 1000;
+            if (total > 0 && total < 50) total = total * 1000;
+            if (size === 0) size = extractBaseValue(row.variant_name || row.Product);
+
+            let count = parseInt(row.packet_count || 0);
+            if (count <= 0 && size > 0) count = Math.round(total / size);
+            if (count <= 0) count = 1;
+
+            const productName = `${row.Product}${row.variant_name ? ' (' + row.variant_name + ')' : ''}`;
+            const unitType = row.unit_type;
+            const unitSizeStr = formatUnitDisplay(size, unitType);
+            const key = `${productName}|${unitSizeStr}`;
+
+            if (!salesMap.has(key)) {
+                salesMap.set(key, { product: productName, unitSizeStr, unitType, totalPackets: 0, totalWeightVol: 0 });
+            }
+            const data = salesMap.get(key);
+            data.totalPackets += count;
+            data.totalWeightVol += total;
+        });
+
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet('Product Sales Summary');
+
+        worksheet.columns = [
+            { header: 'Product', key: 'Product', width: 35 },
+            { header: 'Unit Size', key: 'Unit', width: 15 },
+            { header: 'Total Packets', key: 'Packets', width: 18 },
+            { header: 'Total Weight/Vol', key: 'Total', width: 22 }
+        ];
+
+        const headerRow = worksheet.getRow(1);
+        headerRow.height = 30;
+        headerRow.eachCell(cell => {
+            cell.font  = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+            cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2D5E55' } };
+            cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+            cell.border = {
+                top: { style: 'thin', color: { argb: 'FFFFFFFF' } },
+                left: { style: 'thin', color: { argb: 'FFFFFFFF' } },
+                bottom: { style: 'thin', color: { argb: 'FFFFFFFF' } },
+                right: { style: 'thin', color: { argb: 'FFFFFFFF' } }
+            };
+        });
+
+        let rowIndex = 2;
+        const sortedSales = Array.from(salesMap.values()).sort((a, b) => a.product.localeCompare(b.product));
+
+        sortedSales.forEach((data, index) => {
+            const isEven = index % 2 === 0;
+            const bgColor = isEven ? 'FFFFFFFF' : 'FFE0E0E0';
+
+            const row = worksheet.addRow({
+                Product: data.product,
+                Unit: data.unitSizeStr,
+                Packets: data.totalPackets,
+                Total: formatUnitDisplay(data.totalWeightVol, data.unitType)
+            });
+
+            row.eachCell({ includeEmpty: true }, (cell, col) => {
+                cell.alignment = { vertical: 'middle', horizontal: col === 1 ? 'left' : 'center', wrapText: true };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
+                cell.border = {
+                    left: { style: 'thin', color: { argb: 'FF9E9E9E' } },
+                    right: { style: 'thin', color: { argb: 'FF9E9E9E' } },
+                    bottom: { style: 'thin', color: { argb: 'FF9E9E9E' } },
+                    top: { style: 'thin', color: { argb: 'FF9E9E9E' } }
+                };
+            });
+            rowIndex++;
+        });
+
+        const routeName = cleanRoute ? `Route_${cleanRoute}` : 'All_Routes';
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="ProductSales_${routeName}_${month}_${year}.xlsx"`);
+        await workbook.xlsx.write(res);
+        res.end();
+
 exports.applyGroupBorders = (worksheet, startRow, endRow, totalCols, color) => {
     for (let r = startRow; r <= endRow; r++) {
         for (let c = 1; c <= totalCols; c++) {
@@ -538,26 +646,95 @@ exports.exportUserMonthly = async (req, res) => {
         worksheet.columns = [
             { header: 'Order ID', key: 'OrderID', width: 12 },
             { header: 'Delivery Date', key: 'Date', width: 18 },
-            { header: 'Product', key: 'Product', width: 25 },
+            { header: 'Product', key: 'Product', width: 35 },
             { header: 'Unit Size', key: 'Unit', width: 15 },
             { header: 'Quantity', key: 'Qty', width: 12 },
-            { header: 'Total Weight/Vol', key: 'Total', width: 18 }
+            { header: 'Total Weight/Vol', key: 'Total', width: 22 }
         ];
 
-        rows.forEach(row => {
-            let size = parseFloat(row.packet_size || 0) || 0;
-            const total = parseFloat(row.qty_raw || 0) || 0;
-            if (size === 0) size = extractBaseValue(row.variant_name || row.Product);
-            if (size > 0 && size < 50) size = size * 1000;
+        // Style header row
+        const headerRow = worksheet.getRow(1);
+        headerRow.height = 30;
+        headerRow.eachCell(cell => {
+            cell.font  = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+            cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2D5E55' } };
+            cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+            cell.border = {
+                top:    { style: 'thin', color: { argb: 'FFFFFFFF' } },
+                left:   { style: 'thin', color: { argb: 'FFFFFFFF' } },
+                bottom: { style: 'thin', color: { argb: 'FFFFFFFF' } },
+                right:  { style: 'thin', color: { argb: 'FFFFFFFF' } },
+            };
+        });
 
-            worksheet.addRow({
-                OrderID: row.OrderID,
-                Date: row.DeliveryDate,
-                Product: `${row.Product}${row.variant_name ? ' (' + row.variant_name + ')' : ''}`,
-                Unit: formatUnitDisplay(size, row.unit_type),
-                Qty: row.packet_count || 1,
-                Total: formatUnitDisplay(total, row.unit_type)
+        const USER_COLORS = ['FFFFFFFF', 'FFE0E0E0']; // White and Medium Grey for B&W Xerox
+        let colorIndex = -1;
+        let curOrder = null;
+        let orderStart = 0;
+
+        rows.forEach((row, i) => {
+            const isNewOrder = row.OrderID !== curOrder;
+            const rowIdx = worksheet.rowCount + 1;
+
+            if (isNewOrder) {
+                if (curOrder !== null) {
+                    const end = worksheet.rowCount;
+                    if (end > orderStart) [1,2].forEach(c => worksheet.mergeCells(orderStart, c, end, c));
+                    
+                    // Explicitly set thick bottom border for the previous order's last row after merges
+                    for (let c = 1; c <= 6; c++) {
+                        const cell = worksheet.getCell(end, c);
+                        cell.border = { ...cell.border, bottom: { style: 'medium', color: { argb: 'FF000000' } } };
+                    }
+                }
+                colorIndex = (colorIndex + 1) % USER_COLORS.length;
+                curOrder = row.OrderID;
+                orderStart = rowIdx;
+            }
+            
+            const bgColor = USER_COLORS[colorIndex];
+
+            let size = parseFloat(row.packet_size || 0) || 0;
+            let total = parseFloat(row.qty_raw || 0) || 0;
+            if (size > 0 && size < 50) size = size * 1000;
+            if (total > 0 && total < 50) total = total * 1000;
+            if (size === 0) size = extractBaseValue(row.variant_name || row.Product);
+
+            let count = parseInt(row.packet_count || 0);
+            if (count <= 0 && size > 0) count = Math.round(total / size);
+            if (count <= 0) count = 1;
+
+            const excelRow = worksheet.addRow([
+                isNewOrder ? row.OrderID : '',
+                isNewOrder ? row.DeliveryDate : '',
+                `${row.Product}${row.variant_name ? ' (' + row.variant_name + ')' : ''}`,
+                formatUnitDisplay(size, row.unit_type),
+                count,
+                formatUnitDisplay(total, row.unit_type)
+            ]);
+
+            const applyThickTop = (isNewOrder);
+
+            excelRow.eachCell({ includeEmpty: true }, (cell, col) => {
+                cell.alignment = { vertical: 'middle', horizontal: col <= 2 ? 'center' : 'left', wrapText: true };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
+                
+                cell.border = {
+                    left:   { style: 'thin', color: { argb: 'FF9E9E9E' } },
+                    right:  { style: 'thin', color: { argb: 'FF9E9E9E' } },
+                    bottom: { style: 'thin', color: { argb: 'FF9E9E9E' } },
+                    top: applyThickTop ? { style: 'medium', color: { argb: 'FF000000' } } : { style: 'thin', color: { argb: 'FF9E9E9E' } }
+                };
             });
+
+            if (i === rows.length - 1) {
+                const end = worksheet.rowCount;
+                if (end > orderStart) [1,2].forEach(c => worksheet.mergeCells(orderStart, c, end, c));
+                for (let c = 1; c <= 6; c++) {
+                    const cell = worksheet.getCell(end, c);
+                    cell.border = { ...cell.border, bottom: { style: 'medium', color: { argb: 'FF000000' } } };
+                }
+            }
         });
 
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

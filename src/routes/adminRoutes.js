@@ -13,6 +13,7 @@ router.get('/export/route', authMiddleware, isAdmin, adminController.exportRoute
 router.get('/export/route-xlsx', authMiddleware, isAdmin, adminController.exportRouteXLSX);
 router.get('/export/monthly-xlsx', authMiddleware, isAdmin, adminController.exportMonthlyXLSX);
 router.get('/export/user-monthly', authMiddleware, isAdmin, adminController.exportUserMonthly);
+router.get('/export/product-sales', authMiddleware, isAdmin, adminController.exportProductSalesXLSX);
 router.get('/users', authMiddleware, isAdmin, adminController.getUsers);
 router.put('/users/:id', authMiddleware, isAdmin, adminController.updateUser);
 router.delete('/users/:id', authMiddleware, isAdmin, adminController.deleteUser);
