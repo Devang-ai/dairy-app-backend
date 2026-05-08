@@ -509,6 +509,10 @@ exports.exportProductSalesXLSX = async (req, res) => {
         res.setHeader('Content-Disposition', `attachment; filename="ProductSales_${routeName}_${month}_${year}.xlsx"`);
         await workbook.xlsx.write(res);
         res.end();
+    } catch (error) {
+        res.status(500).json({ message: 'Product Sales Excel Error', error: error.message });
+    }
+};
 
 exports.applyGroupBorders = (worksheet, startRow, endRow, totalCols, color) => {
     for (let r = startRow; r <= endRow; r++) {
@@ -744,7 +748,9 @@ exports.exportUserMonthly = async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
-};exports.uploadImage = async (req, res) => {
+};
+
+exports.uploadImage = async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ message: 'No file' });
         const result = await new Promise((resolve, reject) => {
