@@ -147,25 +147,53 @@ exports.exportRouteXLSX = async (req, res) => {
         const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet('Delivery Report');
         
-        // Define Columns properly with headers
+        // Define Columns with exact widths and keys (without headers so we can set them manually at Row 4)
         worksheet.columns = [
-            { header: 'Order ID', key: 'OrderID', width: 12 }, 
-            { header: 'Customer Name', key: 'CustomerName', width: 25 }, 
-            { header: 'Route', key: 'Route', width: 20 },
-            { header: 'Address', key: 'Address', width: 35 }, 
-            { header: 'Delivery Date', key: 'DeliveryDate', width: 18 }, 
-            { header: 'Product', key: 'Product', width: 35 },
-            { header: 'Unit Size', key: 'Unit', width: 15 }, 
-            { header: 'Packet Qty', key: 'Quantity', width: 18 }, 
-            { header: 'Total Weight/Vol', key: 'Total', width: 22 }
+            { key: 'OrderID', width: 12 }, 
+            { key: 'CustomerName', width: 25 }, 
+            { key: 'DeliveryDate', width: 18 }, 
+            { key: 'Product', width: 40 },
+            { key: 'Unit', width: 15 }, 
+            { key: 'Quantity', width: 20 }, 
+            { key: 'Total', width: 25 }
         ];
 
-        // Style the first row (headers)
-        const headerRow = worksheet.getRow(1);
-        headerRow.height = 30; // Extra height for headers
-        headerRow.eachCell(cell => {
-            cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A5276' } };
+        // 1. Get Route Name for the Heading
+        let routeName = 'All Routes';
+        if (route_id && route_id !== 'all') {
+            const firstRow = rows[0];
+            routeName = firstRow?.Route || 'Specified Route';
+        }
+
+        // 2. Add Row 1: Title Header Row (Centered and Styled Navy Blue)
+        const titleRow = worksheet.addRow([`DELIVERY REPORT - ${routeName.toUpperCase()}`]);
+        titleRow.height = 40;
+        worksheet.mergeCells(1, 1, 1, 7);
+        const titleCell = worksheet.getCell(1, 1);
+        titleCell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 16, name: 'Calibri' };
+        titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } };
+        titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+
+        // 3. Add Row 2: Metadata Subtitle Row (Date & Statistics)
+        const subtitleRow = worksheet.addRow([`Delivery Date: ${date}   |   Total Orders: ${ordersMap.size}`]);
+        subtitleRow.height = 25;
+        worksheet.mergeCells(2, 1, 2, 7);
+        const subtitleCell = worksheet.getCell(2, 1);
+        subtitleCell.font = { bold: true, color: { argb: 'FF374151' }, size: 11, name: 'Calibri' };
+        subtitleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+        subtitleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+
+        // 4. Add Row 3: Empty Spacer Row
+        const spacerRow = worksheet.addRow([]);
+        spacerRow.height = 15;
+
+        // 5. Add Row 4: Main Table Headers
+        const headers = ['Order ID', 'Customer Name', 'Delivery Date', 'Product', 'Unit Size', 'Packet Qty', 'Total Weight/Vol'];
+        const headerRow = worksheet.addRow(headers);
+        headerRow.height = 30;
+        headerRow.eachCell((cell) => {
+            cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11, name: 'Calibri' };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF3B82F6' } };
             cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
             cell.border = {
                 top:    { style: 'thin', color: { argb: 'FFFFFFFF' } },
@@ -173,14 +201,6 @@ exports.exportRouteXLSX = async (req, res) => {
                 bottom: { style: 'thin', color: { argb: 'FFFFFFFF' } },
                 right:  { style: 'thin', color: { argb: 'FFFFFFFF' } }
             };
-        });
-
-        // Set widths explicitly again to be absolutely sure
-        [1,2,3,4,5,6,7,8,9].forEach(colIdx => {
-            const col = worksheet.getColumn(colIdx);
-            if (colIdx === 6) col.width = 40; // Product
-            else if (colIdx === 8) col.width = 20; // Qty
-            else if (colIdx === 9) col.width = 25; // Total
         });
 
         const USER_COLORS = ['FFFFFFFF', 'FFE0E0E0']; // White and Medium Grey for B&W Xerox
@@ -202,8 +222,6 @@ exports.exportRouteXLSX = async (req, res) => {
                 const rowData = [
                     idx === 0 ? order.OrderID : '', 
                     idx === 0 ? order.CustomerName : '', 
-                    idx === 0 ? order.Route : '', 
-                    idx === 0 ? order.Address : '', 
                     idx === 0 ? order.DeliveryDate : '',
                     item.Product, item.Unit, item.Quantity, item.Total
                 ];
@@ -211,19 +229,19 @@ exports.exportRouteXLSX = async (req, res) => {
                 const row = worksheet.addRow(rowData);
 
                 row.eachCell({ includeEmpty: true }, (cell, col) => {
-                    cell.alignment = { vertical: 'middle', horizontal: col <= 5 ? 'center' : 'left', wrapText: true };
+                    cell.alignment = { vertical: 'middle', horizontal: col <= 3 ? 'center' : 'left', wrapText: true };
                     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
                 });
             });
             
             const endRow = worksheet.rowCount;
             if (order.items.length > 1) {
-                [1,2,3,4,5].forEach(col => worksheet.mergeCells(startRow, col, endRow, col));
+                [1,2,3].forEach(col => worksheet.mergeCells(startRow, col, endRow, col));
             }
 
             // Apply borders AFTER merge to guarantee they aren't hidden by ExcelJS
             for (let r = startRow; r <= endRow; r++) {
-                for (let c = 1; c <= 9; c++) {
+                for (let c = 1; c <= 7; c++) {
                     const cell = worksheet.getCell(r, c);
                     cell.border = {
                         left:   { style: 'thin', color: { argb: 'FF9E9E9E' } },
